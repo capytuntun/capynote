@@ -5802,13 +5802,13 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 .sync-hit iframe.video-frame { box-shadow: 0 3px 0 0 var(--accent); }
 /* 預覽（#preview）的字全部小 2px：「減 1 個 font」（18→17）→「小兩號」（→15）→「加大一個px」（→16，2026-10-10）；標題用 em 跟著縮；
    程式碼區塊、連結卡、附件籤片本來各自是固定 px，也各減 1。電子書與 PDF 不動。 */
-#preview.markdown-body { font-size: calc(var(--fs-lg) - 1px); }
-/* 2026-10-10「把一般文字再加大一個px，其他有##的就不要動」：內文 16→17，但標題不跟著放大——
-   標題是 em，所以把它們釘在「16px 基準」算出來的值（h1 1.85×16、h2 1.45×16…）；之後「有#的文字都再小一個pixel」，各再 -1px。 */
+/* 2026-10-11 使用者直接指定：「## : 24、### : 22、#### : 20 一般文字 18.5」（# 沒說，維持 28.6px）。
+   標題寫死 px，不用 em——內文改大小時標題不會跟著動。 */
+#preview.markdown-body { font-size: 18.5px; }
 #preview.markdown-body h1 { font-size: calc((var(--fs-lg) - 2px) * 1.85 - 1px); }
-#preview.markdown-body h2 { font-size: calc((var(--fs-lg) - 2px) * 1.45 - 1px); }
-#preview.markdown-body h3 { font-size: calc((var(--fs-lg) - 2px) * 1.2 - 1px); }
-#preview.markdown-body h4 { font-size: calc((var(--fs-lg) - 2px) * 1.05 - 1px); }
+#preview.markdown-body h2 { font-size: 24px; }
+#preview.markdown-body h3 { font-size: 22px; }
+#preview.markdown-body h4 { font-size: 20px; }
 #preview.markdown-body h5, #preview.markdown-body h6 { font-size: calc(var(--fs-lg) - 3px); }
 #preview .code-block { font-size: calc(var(--fs-md) - 2px); }
 #preview .link-card-title, #preview .file-chip-name { font-size: calc(var(--fs-base) - 2px); }
