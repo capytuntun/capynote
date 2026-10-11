@@ -5,9 +5,10 @@
  * 「文字就是真相」，版本、備份、搜尋、垃圾桶都不用新東西）：
  *   { color, folderId, reminders: [分鐘前…], chapters: [{ id, title, done, doneAt, due: 'YYYY-MM-DD'|'', noteId, eventId, reminders }] }
  *   - folderId：綁定的「課程筆記」資料夾（area 'course'）；章節的 noteId 是那個資料夾裡的一篇筆記（可以從章節直接建立）。
- *   - 跟 timetree 的綁定：有預計完成日的章節會在「課程管理」那本行事曆（meta.courseCal，第一次開這一頁時自動建立）放一個
- *     全天行程，eventId 記住它；改日期、改名、完成（標題加 ✓）、刪章節都同步過去，提醒就是那個行程的 reminders
- *     （timetree 頁面開著時會跳瀏覽器通知）。
+ *   - 跟 timetree 的綁定：每一章都是「課程管理」那本行事曆（meta.courseCal，第一次開這一頁時自動建立）裡的一個行程——
+ *     有預計完成日的是那天的全天行程，沒有的放在 Keep（還沒排日期）；eventId 記住它；改日期、改名、完成（標題加 ✓）、
+ *     刪章節都同步過去，提醒就是那個行程的 reminders（timetree 頁面開著時會跳瀏覽器通知）。反方向：在 timetree 把 Keep
+ *     拖到某一天、改日期、放回 Keep，下次畫課程進度時 pullFromCalendar 把日期拉回章節；reconcile 也會把少掉的行程補上。
  *   - 逾期：還沒完成而且預計完成日已經過了 → 頁面上方提示「重新規劃」：整批往後延 N 天、或重新平均分配到某一天。
  * 畫面（#progress 一頁，Progress.render）：左欄課程清單（圓環＋名稱＋幾章），右邊是選到的課程：總覽卡（大圓環、幾章完成、
  * 一格一章的進度條）、逾期提示、章節清單（圓圈裡是編號、勾了變打勾；點標題改名；右邊只放設定了的筆記／日期／提醒 chip，
@@ -152,8 +153,9 @@
     if (!n || !global.TimeTree) return null;
     return { note: n, cal: TimeTree.parse(TimeTree.payloadOf(n.content) || '') };
   }
+  // 沒有預計完成日的章節也在行事曆上：放在 Keep（還沒排日期），在 timetree 拖到某一天就排進來（pullFromCalendar 會拉回來）
   function eventFor(c, ch) {
-    return { id: ch.eventId || uid('e'), title: (ch.done ? '✓ ' : '') + c.name + '：' + ch.title, allDay: true, start: ch.due, end: ch.due, label: null, location: '', url: '', notes: '課程進度「' + c.name + '」的章節', images: [], repeat: null, exdates: [], reminders: ch.reminders.slice(), keep: false };
+    return { id: ch.eventId || uid('e'), title: (ch.done ? '✓ ' : '') + c.name + '：' + ch.title, allDay: true, start: ch.due, end: ch.due, label: null, location: '', url: '', notes: '課程進度「' + c.name + '」的章節', images: [], repeat: null, exdates: [], reminders: ch.reminders.slice(), keep: !ch.due };
   }
   // chs 省略 = 整門課。回傳有沒有真的改到行事曆
   function syncEvents(c, chs) {
@@ -163,7 +165,6 @@
     const seen = {}; cd.cal.events.forEach(function (e) { seen[e.id] = 1; });
     (chs || c.course.chapters).forEach(function (ch) {
       const i = ch.eventId ? cd.cal.events.findIndex(function (e) { return e.id === ch.eventId; }) : -1;
-      if (!ch.due) { if (i >= 0) { cd.cal.events.splice(i, 1); changed = true; } if (ch.eventId) { ch.eventId = ''; } return; }
       if (i < 0) delete seen[ch.eventId];
       const ev = TimeTree.cleanEvent(eventFor(c, ch), i >= 0 ? {} : seen);
       if (!ev) return;
@@ -186,6 +187,29 @@
     const content = TimeTree.wrap(TimeTree.serialize(cd.cal));
     cd.note.content = content;
     if (O.onChange) O.onChange(cd.note, content);
+  }
+  // 行事曆那邊改的拉回來：在 timetree 把 Keep 拖到某一天、改了日期、「放回 Keep」→ 章節的預計完成日跟著變
+  //（有時間的行程只取日期；章節存不存在仍以課程為準，行程被刪掉下次 syncEvents 會補回來）
+  function pullFromCalendar(c, cd) {
+    let changed = false;
+    c.course.chapters.forEach(function (ch) {
+      if (!ch.eventId) return;
+      const ev = cd.cal.events.find(function (e) { return e.id === ch.eventId; }); if (!ev) return;
+      const due = ev.keep || !ev.start ? '' : ev.start.slice(0, 10);
+      if (due !== ch.due && (!due || parseDay(due))) { ch.due = due; changed = true; }
+    });
+    return changed;
+  }
+  // 每次畫面重畫都對一次：先把行事曆上的改動拉回來，再把少掉的行程補上——課程比「課程管理」行事曆早建（第一次開這一頁時
+  // 行事曆還在建）、或還沒有這個規則之前建的課程裡沒日期的章節，都是在這裡補進 Keep 的
+  function reconcile(cs) {
+    const cd = calData(); if (!cd) return;
+    cs.forEach(function (c) {
+      if (c.ro) return;
+      let dirty = pullFromCalendar(c, cd);
+      if (syncEvents(c)) dirty = true;
+      if (dirty) save(c);
+    });
   }
   // 章節改了：先存課程，再同步行事曆（同步可能又改到 eventId，所以存兩次也沒關係——第二次才帶 eventId）
   function commit(c, chs) {
@@ -212,6 +236,7 @@
     host = container; O = opts || {};
     closePop();
     const cs = coursesOf();
+    reconcile(cs);
     if (S.selected && !cs.some(function (c) { return c.id === S.selected; })) S.selected = null;
     if (!S.selected && cs.length) S.selected = cs[0].id;
     host.className = 'pg-page';
@@ -534,7 +559,7 @@
         '<label class="pg-f"><span>綁定課程筆記資料夾</span><select class="tt-input" data-f="folder">' + folderOptions('') + '</select><small class="pg-f-hint">綁了之後，每一章可以直接在那個資料夾建立筆記；也可以把資料夾裡已有的筆記當章節。</small></label>' +
         '<label class="pg-f pg-f-chk"><input type="checkbox" data-f="fromFolder"><span>用資料夾裡的筆記當章節（跟上面的章節合併）</span></label>' +
         '<div class="pg-f-row"><label class="pg-f"><span>開始日</span><input class="tt-input" type="date" data-f="start" value="' + dkey(today()) + '"></label><label class="pg-f"><span>預計完成日</span><input class="tt-input" type="date" data-f="end"></label></div>' +
-        '<div class="pg-f-hint">兩個日期都填，章節的預計完成日會平均分配，並放到 timetree 的「課程管理」行事曆。</div>' +
+        '<div class="pg-f-hint">兩個日期都填，章節的預計完成日會平均分配。每一章都會放到 timetree 的「課程管理」行事曆：有日期的是那天的全天行程，沒日期的先放在 Keep，在 timetree 拖到某一天就排進來。</div>' +
         '<div class="pg-f"><span>預設提醒（每一章的預計完成日前）</span>' + remChips([1440]) + '</div>' +
       '</div>' +
       '<div class="modal-actions"><button class="btn pg-dcancel" type="button">取消</button><button class="btn btn-primary pg-dok" type="button">建立</button></div>');
