@@ -75,6 +75,7 @@
     if (note.meta && note.meta.startpage) return 'layout-grid';
     if (note.meta && note.meta.xmind) return 'mind-map';
     if (note.meta && note.meta.timetree) return 'calendar';
+    if (note.meta && note.meta.progress) return 'list-checks';
     if (note.meta && note.meta.doc) return 'file-pen';
     if (note.area === 'quick') return 'pin';
     if (note.meta && note.meta.perfReport) return 'chart';
@@ -142,6 +143,8 @@
         openXmind();
       } else if (location.hash === '#timetree') {
         openTimeTree();
+      } else if (location.hash === '#progress') {
+        openProgress();
       } else if (areaFromHash() && areaFromHash().area === 'novel') {
         // 一定要先問過密碼才能進去，重新整理也一樣——openArea('novel') 本身就會擋下來彈窗。
         // 還沒解鎖時小說的資料夾不在 state.folders 裡，所以資料夾 id 直接從網址拿
@@ -170,6 +173,7 @@
         if (wantNote || wantBook) toast('找不到這篇筆記，或你沒有存取權');
         showEmpty();
       }
+      progressOverdueNotice();
     });
   }
 
@@ -206,7 +210,7 @@
       selectedFolders.clear();
     }
     // 樹顯示哪個區域，側邊欄那一列就亮著——包括正在編輯那個區域裡的一篇筆記的時候
-    ['course', 'knowledge', 'novel', 'quick', 'board', 'start', 'xmind', 'timetree'].forEach(function (a) { setNavActive(a + '-open-btn', a === area); });
+    ['course', 'knowledge', 'novel', 'quick', 'board', 'start', 'xmind', 'timetree', 'progress'].forEach(function (a) { setNavActive(a + '-open-btn', a === area); });
     renderTree();
   }
   // 新東西要建在哪個區域：有目標資料夾就跟資料夾（伺服器的 resolveArea 也是這樣要求的），
@@ -216,7 +220,7 @@
       const f = state.folders.find(function (x) { return x.id === folderId; });
       return f ? (f.area || null) : null;
     }
-    return treeArea && treeArea !== 'quick' && treeArea !== 'board' && treeArea !== 'start' && treeArea !== 'xmind' && treeArea !== 'timetree' ? treeArea : null;   // 看板、起始頁、心智圖、行事曆只從自己的頁面建立
+    return treeArea && treeArea !== 'quick' && treeArea !== 'board' && treeArea !== 'start' && treeArea !== 'xmind' && treeArea !== 'timetree' && treeArea !== 'progress' ? treeArea : null;   // 看板、起始頁、心智圖、行事曆、課程進度只從自己的頁面建立
   }
   function withArea(folderId, opts) {
     const a = areaForNew(folderId);
@@ -239,7 +243,7 @@
     treeEl.innerHTML = '';
     // 在某個區域裡：樹的最上面標出這是哪個區域的內容，免得跟「所有筆記」的樹搞混
     if (treeArea) {
-      const info = treeArea === 'quick' ? { title: '隨筆', icon: 'pin' } : treeArea === 'board' ? { title: 'trello', icon: 'kanban' } : treeArea === 'start' ? { title: 'start.me', icon: 'layout-grid' } : treeArea === 'xmind' ? { title: 'xmind', icon: 'mind-map' } : treeArea === 'timetree' ? { title: 'timetree', icon: 'calendar' } : AREA_INFO[treeArea];
+      const info = treeArea === 'quick' ? { title: '隨筆', icon: 'pin' } : treeArea === 'board' ? { title: 'trello', icon: 'kanban' } : treeArea === 'start' ? { title: 'start.me', icon: 'layout-grid' } : treeArea === 'xmind' ? { title: 'xmind', icon: 'mind-map' } : treeArea === 'timetree' ? { title: 'timetree', icon: 'calendar' } : treeArea === 'progress' ? { title: '課程進度', icon: 'list-checks' } : AREA_INFO[treeArea];
       const head = document.createElement('div');
       head.className = 'tree-section tree-area-head';
       head.innerHTML = Icons.svg(info.icon) + '<span>' + MD.escapeHtml(info.title) + '</span>';
@@ -254,6 +258,7 @@
         : treeArea === 'start' ? '還沒有起始頁。'
         : treeArea === 'xmind' ? '還沒有心智圖。'
         : treeArea === 'timetree' ? '還沒有行事曆。'
+        : treeArea === 'progress' ? '還沒有課程。'
         : treeArea ? '這個區域還沒有資料夾或筆記。'
         : '尚無筆記，點上方「＋ 筆記」開始。';
       treeEl.appendChild(hint);
@@ -683,6 +688,7 @@
     if (boardsWrapEl && !boardsWrapEl.hidden && window.Board) Board.renderIndex(boardsPageEl, boardsOpts());
     if (xmindWrapEl && !xmindWrapEl.hidden && window.XMind) XMind.renderIndex(xmindPageEl, xmindOpts());
     renderTimeTree();
+    renderProgress();
     renderStart();
   }
   // 儀表板需要的資料與回呼，集中一處，render / refresh 共用
@@ -1041,6 +1047,8 @@
     setNavActive('xmind-open-btn', false);
     if (timetreeWrapEl) { timetreeWrapEl.hidden = true; if (window.TimeTree) TimeTree.teardown(); }
     setNavActive('timetree-open-btn', false);
+    if (progressWrapEl) { progressWrapEl.hidden = true; if (window.Progress) Progress.teardown(); }
+    setNavActive('progress-open-btn', false);
   }
 
   // 進入一個區域頁面前的共用收尾：跟 openTrash／openBook 同一套「收起其他檢視」。
@@ -1463,6 +1471,99 @@
     setTreeArea('timetree');
     renderTimeTree();
   }
+  // ---- 課程進度（js/progress.js）：#progress 一個畫面；每一門課程是一篇 area 'progress'、meta.progress 的筆記 ----
+  // 綁兩邊：章節的筆記建在「課程筆記」（area 'course'）的資料夾裡；有預計完成日的章節寫進 timetree 的「課程管理」行事曆
+  // （一本 meta.timetree + meta.courseCal 的筆記，第一次開這一頁時自動建立）。存檔走 ttSave（每篇筆記一條單一寫入路徑，
+  // 課程跟行事曆都是）。
+  const progressWrapEl = $('#progress-wrap'), progressPageEl = $('#progress-page');
+  function courseCalNote() {
+    return state.notes.find(function (n) { return n.area === 'timetree' && n.meta && n.meta.timetree && n.meta.courseCal && isMine(n); }) || null;
+  }
+  let courseCalPending = null;
+  function ensureCourseCal() {
+    const have = courseCalNote();
+    if (have) return Promise.resolve(have);
+    if (courseCalPending) return courseCalPending;
+    courseCalPending = Store.createNote('課程管理', null, { area: 'timetree', content: TimeTree.generate('#d9962a'), meta: { timetree: true, courseCal: true } })
+      .then(function (n) { state.notes.push(n); renderTree(); return n; })
+      .finally(function () { courseCalPending = null; });
+    return courseCalPending;
+  }
+  function progressOpts() {
+    return {
+      courses: state.notes.filter(function (n) { return n.area === 'progress' && isMine(n) && window.Progress && Progress.isNote(n); }),
+      calendar: courseCalNote(),
+      courseFolders: state.folders.filter(function (f) { return f.area === 'course'; }),
+      courseNotes: state.notes.filter(function (n) { return n.area === 'course' && isMine(n) && !isFileNote(n) && !isStickyNote(n); }),
+      allNotes: state.notes,
+      readOnly: function (n) { return n.perm === 'read'; },
+      onChange: ttSave,
+      onTags: editTags,
+      onOpenNote: openNote,
+      onOpenFolder: function (id) { openArea('course', { folderId: id }); },
+      onOpenCalendar: function () { const c = courseCalNote(); openTimeTree(c ? { calId: c.id } : undefined); },
+      onCreateFolder: function (name) {
+        return Store.createFolder(name, null, 'course').then(function (f) { state.folders.push(f); renderTree(); return f; });
+      },
+      onNewNote: function (folderId, title) {
+        return Store.createNote(title, folderId, { area: 'course' }).then(function (n) { state.notes.push(n); renderTree(); return n; });
+      },
+      onCreate: function (d) {
+        Store.createNote(d.title, null, { area: 'progress', content: Progress.wrap(Progress.serialize(d.course)), meta: { progress: true } }).then(function (n) {
+          state.notes.push(n);
+          renderTree();
+          if (progressWrapEl && !progressWrapEl.hidden) Progress.afterCreate(n.id, progressOpts()); else renderProgress();
+        }, function (e) { toast('建立失敗：' + (e && e.message || e)); });
+      },
+      onRename: function (n) {
+        showPrompt({ title: '重新命名課程', placeholder: '課程名稱', value: n.title, ok: '確定' }).then(function (t) {
+          t = String(t || '').trim();
+          if (!t || t === n.title) return;
+          Store.updateNote(Object.assign({}, n, { title: t })).then(function (r) {
+            Object.assign(n, { title: r.title, rev: r.rev, updatedAt: r.updatedAt });
+            refreshViews();
+          }, function (e) { toast('儲存失敗：' + (e && e.message || e)); });
+        });
+      },
+      onDelete: function (n, beforeDelete) {
+        showConfirm({ title: '移到垃圾桶', message: '把課程「' + n.title + '」移到垃圾桶？行事曆上它的章節行程會一起拿掉；課程筆記不會動。可以從垃圾桶還原。', ok: '移到垃圾桶', danger: true }).then(function (yes) {
+          if (!yes) return;
+          if (beforeDelete) beforeDelete();
+          Store.deleteNote(n.id).then(function () {
+            state.notes = state.notes.filter(function (x) { return x.id !== n.id; });
+            refreshViews();
+            toast('已移到垃圾桶');
+          }, function (e) { toast('刪除失敗：' + (e && e.message || e)); });
+        });
+      }
+    };
+  }
+  function renderProgress() {
+    if (progressWrapEl && !progressWrapEl.hidden && window.Progress) Progress.render(progressPageEl, progressOpts());
+  }
+  function openProgress(o) {
+    if (!progressWrapEl || !window.Progress) return;
+    leaveOtherViews();
+    closeAreaViews();
+    if (o && o.courseId) { Progress.state.selected = o.courseId; LS.set('pgCourse', o.courseId); }
+    progressWrapEl.hidden = false;
+    setNavActive('progress-open-btn', true);
+    setSidebarOpen(false);   // 跟 timetree 一樣：頁面自己有左欄
+    setHash('progress');
+    setTreeArea('progress');
+    renderProgress();
+    // 預設的「課程管理」行事曆：沒有就建一本，建好再畫一次（章節的行程才有地方放）
+    if (!courseCalNote() && window.TimeTree) ensureCourseCal().then(function () { renderProgress(); }, function (e) { toast('建立「課程管理」行事曆失敗：' + (e && e.message || e)); });
+  }
+  // 進站時提醒逾期的章節（一個工作階段提醒一次）
+  function progressOverdueNotice() {
+    if (!window.Progress || sessionStorage.getItem('pgNoticed')) return;
+    let n = 0, names = [];
+    state.notes.forEach(function (x) { if (x.area !== 'progress' || !Progress.isNote(x) || !isMine(x)) return; const st = Progress.stats(Progress.parse(Progress.payloadOf(x.content) || '')); if (st.overdue.length) { n += st.overdue.length; names.push(x.title); } });
+    if (!n) return;
+    try { sessionStorage.setItem('pgNoticed', '1'); } catch (e) { /* */ }
+    toast('課程進度：' + names.join('、') + ' 有 ' + n + ' 個章節逾期，到課程進度重新規劃');
+  }
   // ---- 文件（js/doc.js）：所見即所得的編輯器，整頁；內容是 HTML。最上面那一列是它的標題列（toolBar，
   // 跟 drawio／看板同一套），單一寫入路徑同上。----
   const docWrapEl = $('#doc-wrap');
@@ -1768,7 +1869,7 @@
   // 進關聯圖的那份筆記清單。
   function graphNotes() {
     return state.notes.filter(function (n) {
-      return n.area !== 'quick' && n.area !== 'novel' && n.area !== 'board' && n.area !== 'start' && n.area !== 'xmind' && n.area !== 'timetree' && !isFileNote(n) && !isStickyNote(n);
+      return n.area !== 'quick' && n.area !== 'novel' && n.area !== 'board' && n.area !== 'start' && n.area !== 'xmind' && n.area !== 'timetree' && n.area !== 'progress' && !isFileNote(n) && !isStickyNote(n);
     });
   }
 
@@ -2523,6 +2624,8 @@
       if (window.XMind && XMind.isNote(note)) { openXmindNote(note); return; }
       // 行事曆（meta.timetree）：到行事曆的畫面、把那一本顯示出來
       if (window.TimeTree && TimeTree.isNote(note)) { openTimeTree({ calId: note.id }); return; }
+      // 課程進度（meta.progress）：到課程進度的畫面、選到那一門
+      if (window.Progress && Progress.isNote(note)) { openProgress({ courseId: note.id }); return; }
       // 不在 state.notes 裡的檔案筆記（理論上不會發生）：同樣只疊檢視器，背景沒東西就回首頁
       if (isFileNote(note)) { if (!state.currentId) showEmpty(); openFileViewer(note); return; }
       state.currentId = id;
@@ -5767,6 +5870,7 @@
       if (location.hash === '#start') { if (startWrapEl && startWrapEl.hidden) openStart(); return; }
       if (location.hash === '#xmind') { if (xmindWrapEl && xmindWrapEl.hidden) openXmind(); return; }
       if (location.hash === '#timetree') { if (timetreeWrapEl && timetreeWrapEl.hidden) openTimeTree(); return; }
+      if (location.hash === '#progress') { if (progressWrapEl && progressWrapEl.hidden) openProgress(); return; }
       const bid = bookIdFromHash();
       if (bid) {
         if (state.folders.some(function (f) { return f.id === bid; })) openBook(bid);
@@ -5826,6 +5930,7 @@
     const startBtn = $('#start-open-btn'); if (startBtn) startBtn.addEventListener('click', function () { openStart(); });
     const xmindBtn = $('#xmind-open-btn'); if (xmindBtn) xmindBtn.addEventListener('click', openXmind);
     const timetreeBtn = $('#timetree-open-btn'); if (timetreeBtn) timetreeBtn.addEventListener('click', function () { openTimeTree(); });
+    const progressBtn = $('#progress-open-btn'); if (progressBtn) progressBtn.addEventListener('click', function () { openProgress(); });
 
     editorEl.addEventListener('input', function () {
       renderPreview();

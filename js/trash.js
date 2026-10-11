@@ -32,6 +32,7 @@
     start: { icon: 'layout-grid', cls: 'kind-start' },
     xmind: { icon: 'mind-map', cls: 'kind-xmind' },
     timetree: { icon: 'calendar', cls: 'kind-timetree' },
+    progress: { icon: 'list-checks', cls: 'kind-progress' },
     doc: { icon: 'file-pen', cls: 'kind-doc' },
     sec: { icon: 'shield', cls: 'kind-sec' },
     perf: { icon: 'chart', cls: 'kind-perf' },

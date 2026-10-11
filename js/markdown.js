@@ -661,6 +661,8 @@
       if (info === 'xmind' && global.XMind) return XMind.blockHTML(code);
       // ```timetree 是行事曆（js/timetree.js）：圍欄裡是 JSON，畫成這個月的月曆加接下來兩週
       if (info === 'timetree' && global.TimeTree) return TimeTree.blockHTML(code);
+      // ```progress 是課程進度（js/progress.js）：圍欄裡是 JSON，畫成進度條加章節清單
+      if (info === 'progress' && global.Progress) return Progress.blockHTML(code);
       let requested = info, lineNumbers = false, startLine = 1;
       const opt = info.match(/^([^\s=]*)=(\d*)$/);
       if (opt) {

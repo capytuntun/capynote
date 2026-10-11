@@ -557,6 +557,19 @@ async function main() {
       await call(admin, 'POST', '/api/notes/' + tt + '/restore');
     }
 
+    // 課程進度（js/progress.js）：area 'progress'，同一套；內文是 ```progress 圍欄的 JSON
+    r = await call(admin, 'POST', '/api/notes', { title: '課程一', content: '```progress\n{"color":"#d9962a","chapters":[{"id":"c1","title":"第一章","done":true},{"id":"c2","title":"第二章","due":"2026-10-20"}]}\n```\n', area: 'progress', meta: { progress: true } });
+    ok(r.status === 200 && r.data.note && r.data.note.area === 'progress', 'a course-progress note is created in area progress', r.status);
+    if (r.data.note) {
+      const pg = r.data.note.id;
+      r = await call(admin, 'PUT', '/api/notes/' + pg + '/area', { area: 'course' });
+      ok(r.status === 400, 'a course cannot be moved out of its area', r.status);
+      await call(admin, 'DELETE', '/api/notes/' + pg);
+      r = await call(admin, 'GET', '/api/trash');
+      ok(r.data.notes.some(n => n.id === pg && n.kind === 'progress'), 'the trash lists it as kind progress');
+      await call(admin, 'POST', '/api/notes/' + pg + '/restore');
+    }
+
     // 垃圾桶：連結跟著筆記的狀態
     r = await call(admin, 'DELETE', '/api/notes/' + pub);
     r = await call(anon, 'GET', '/s/' + ntok);

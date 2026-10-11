@@ -479,6 +479,13 @@
       '.pdf-content .gd-pagebreak { break-after: page; height: 0; margin: 0; border: 0; visibility: hidden; }',
       '.pdf-content pre.gd-code { position: relative; font-family: "Courier New", Consolas, monospace; font-size: 9pt; line-height: 1.45; tab-size: 4; background: #f1f3f4; border: 1px solid #dadce0; padding: 2mm 3mm; white-space: pre-wrap; }',
       (global.Doc && Doc.codePrintCSS) ? Doc.codePrintCSS('.pdf-content') : '',   // 行號欄與上色（doc.js 的 staticCode 產生的 .gd-cl／.gd-t-*）
+      /* 課程進度（```progress，js/progress.js 的 blockHTML）：進度條加章節清單 */
+      '.pdf-content .pgs { border: 1px solid #d0d7de; border-radius: 2mm; margin: 0 0 5mm; break-inside: avoid; font-size: 9pt; }',
+      '.pdf-content .pgs-head { display: flex; align-items: center; gap: 2mm; padding: 2mm 3mm; border-bottom: 1px solid #d0d7de; } .pdf-content .pgs-head i { width: 3mm; height: 3mm; border-radius: 50%; display: inline-block; } .pdf-content .pgs-head span { color: #57606a; font-size: 8pt; }',
+      '.pdf-content .pgs-bar { height: 2.5mm; background: #eaeef2; } .pdf-content .pgs-bar i { display: block; height: 100%; }',
+      '.pdf-content .pgs-list { list-style: none; margin: 0; padding: 1.5mm 3mm; } .pdf-content .pgs-list li { display: flex; align-items: center; gap: 2mm; padding: 1mm 0; border-bottom: 1px dashed #e1e4e8; } .pdf-content .pgs-list li:last-child { border-bottom: 0; }',
+      '.pdf-content .pgs-chk { display: inline-flex; color: #57606a; } .pdf-content .pgs-chk .ic-svg { width: 3.5mm; height: 3.5mm; } .pdf-content .pgs-list li.is-done .pgs-chk { color: #17934f; } .pdf-content .pgs-list li.is-done .pgs-t { color: #8c959f; text-decoration: line-through; }',
+      '.pdf-content .pgs-t { flex: 1 1 auto; } .pdf-content .pgs-due { font-size: 8pt; color: #57606a; } .pdf-content .pgs-list li.is-overdue .pgs-due { color: #cf222e; }',
       /* 行事曆（```timetree，js/timetree.js 的 blockHTML）：月曆格線加行程清單 */
       '.pdf-content .tts { border: 1px solid #d0d7de; border-radius: 2mm; margin: 0 0 5mm; break-inside: avoid; font-size: 8.5pt; }',
       '.pdf-content .tts-head { display: flex; align-items: center; gap: 2mm; padding: 2mm 3mm; border-bottom: 1px solid #d0d7de; } .pdf-content .tts-head i { width: 3mm; height: 3mm; border-radius: 50%; display: inline-block; } .pdf-content .tts-head span { color: #57606a; font-size: 7.5pt; }',
