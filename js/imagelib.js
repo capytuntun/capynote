@@ -1144,7 +1144,7 @@
         img.notes.forEach(function (n) {
           const li = el('li', 'imglib-use-row');
           const b = el('button', 'imglib-use');
-          b.type = 'button';
+          b.type = 'button'; b.dataset.noteId = n.id;
           b.innerHTML = icon('file-text');
           const m = el('span', 'u-main');
           m.appendChild(el('span', 'u-title', n.title || '未命名筆記'));

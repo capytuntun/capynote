@@ -6171,18 +6171,32 @@
     // #標籤：點了會開東西的地方，中鍵就在新分頁開同一個東西（跟一般網站的連結一樣）。
     // 真正的 <a href="http…"> 瀏覽器自己會處理，這裡不碰。mousedown 也要擋：Chrome 在非連結
     // 的地方按中鍵會進入自動捲動模式。
+    // 使用者（2026-10-11）：「所有連結按下滾輪都要可以開新分頁」——所以不只筆記列：側邊欄的區域列、
+    // 麵包屑、標籤、trello／xmind 磚、start.me 分頁、timetree 的行事曆列、課程進度的課程與章節筆記、
+    // 電子書目錄、檔案管理「使用於」的筆記、嵌入圖的「全螢幕／編輯」、標題列的資料夾前綴，都算。
+    const NAV_HASH = { 'course-open-btn': '#course', 'quick-open-btn': '#quick', 'knowledge-open-btn': '#knowledge', 'board-open-btn': '#board', 'start-open-btn': '#start', 'xmind-open-btn': '#xmind', 'timetree-open-btn': '#timetree', 'progress-open-btn': '#progress', 'novel-open-btn': '#novel', 'images-open-btn': '#files', 'trash-open-btn': '#trash' };
     function middleTarget(t) {
       if (!t || !t.closest) return null;
       const fh = function (f) { return f ? (f.area ? '#' + f.area + '/' + f.id : '#folder/' + f.id) : null; };
+      const folderById = function (id) { return state.folders.find(function (f) { return f.id === id; }); };
       let el;
       if ((el = t.closest('.note-link[data-note-id]'))) return '#note/' + el.getAttribute('data-note-id');
-      if ((el = t.closest('.hashtag[data-tag]'))) return '#tag/' + encodeURIComponent(el.getAttribute('data-tag'));
+      if ((el = t.closest('.hashtag[data-tag], .tag-chip[data-tag], .dash-row-tag[data-tag]'))) return '#tag/' + encodeURIComponent(el.getAttribute('data-tag'));
+      if ((el = t.closest('.book-tree-link[data-note-id]'))) return '#note/' + el.getAttribute('data-note-id');
       if (t.closest('a[href]')) return null;
-      if ((el = t.closest('.dash-note-wrap[data-id], #tree .note-row[data-id], .search-row[data-id], .qn-card[data-id]'))) return '#note/' + el.dataset.id;
+      if (t.closest('.trash-row')) return null;   // 垃圾桶裡的筆記開不了（#note/<id> 會 404）
+      if ((el = t.closest('.dash-note-wrap[data-id], #tree .note-row[data-id], .search-row[data-id], .qn-card[data-id], .boards-tile[data-id], .xmi-tile[data-id]'))) return '#note/' + el.dataset.id;
+      if ((el = t.closest('.sp-tab[data-page]'))) return '#note/' + el.getAttribute('data-page');
+      if ((el = t.closest('.tt-cal[data-cal]'))) return '#note/' + el.getAttribute('data-cal');
+      if ((el = t.closest('.pg-course[data-course]'))) return '#note/' + el.getAttribute('data-course');
+      if ((el = t.closest('[data-open-note], .imglib-use[data-note-id], [data-relmap-open], [data-drawio-open]'))) return '#note/' + (el.getAttribute('data-open-note') || el.getAttribute('data-note-id') || el.getAttribute('data-relmap-open') || el.getAttribute('data-drawio-open'));
+      if ((el = t.closest('.pg-page [data-act="calendar"]'))) return '#timetree';
+      if ((el = t.closest('.pg-page [data-act="folder"][data-folder]'))) return fh(folderById(el.getAttribute('data-folder')));
       if ((el = t.closest('.dash-book-tile[data-id]'))) return '#book/' + el.dataset.id;
-      if ((el = t.closest('.dash-folder-tile[data-id], #tree .folder-row[data-id]'))) {
-        return fh(state.folders.find(function (f) { return f.id === el.dataset.id; }));
-      }
+      if ((el = t.closest('.dash-folder-tile[data-id], #tree .folder-row[data-id]'))) return fh(folderById(el.dataset.id));
+      if ((el = t.closest('.dash-crumb[data-folder]'))) return el.dataset.folder ? fh(folderById(el.dataset.folder)) : (el.dataset.area ? '#' + el.dataset.area : '#');
+      if (t.closest('#note-path')) { const n = state.current || (toolBar && toolBar.note()); return n && n.folderId ? fh(folderById(n.folderId)) : null; }
+      if ((el = t.closest('.sidebar-nav-item[id]')) && NAV_HASH[el.id]) return NAV_HASH[el.id];
       return null;
     }
     document.addEventListener('mousedown', function (e) {

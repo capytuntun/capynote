@@ -274,7 +274,7 @@
       '<header class="pg-head">' +
         '<div class="pg-head-main"><h2 class="pg-name" data-act="rename" title="點一下改名">' + esc(c.name) + '</h2>' +
           '<div class="pg-sub">' +
-            (c.course.folderId ? (folder ? '<button type="button" class="pg-link" data-act="folder" title="打開課程筆記資料夾">' + ic('folder') + esc(folder) + '</button>' : '<span class="pg-sub-x">' + ic('folder') + '綁定的資料夾已不存在</span>') : (c.ro ? '' : '<button type="button" class="pg-link is-dim" data-act="bind">' + ic('folder-plus') + '綁定課程筆記資料夾</button>')) +
+            (c.course.folderId ? (folder ? '<button type="button" class="pg-link" data-act="folder" data-folder="' + esc(c.course.folderId) + '" title="打開課程筆記資料夾">' + ic('folder') + esc(folder) + '</button>' : '<span class="pg-sub-x">' + ic('folder') + '綁定的資料夾已不存在</span>') : (c.ro ? '' : '<button type="button" class="pg-link is-dim" data-act="bind">' + ic('folder-plus') + '綁定課程筆記資料夾</button>')) +
             (c.course.reminders.length ? '<span>' + ic('bell') + esc(remText(c.course.reminders)) + '</span>' : '') +
           '</div></div>' +
         '<div class="pg-head-right">' + (c.ro ? '' : '<button class="tt-btn" type="button" data-act="replan">' + ic('repeat') + '重新規劃</button><button class="tt-btn pg-more" type="button" data-act="menu" title="更多">' + ic('more-horizontal') + '</button>') + '</div>' +

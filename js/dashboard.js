@@ -188,6 +188,7 @@
       const c = el('button', 'dash-crumb' + (isCurrent ? ' is-current' : ''),
         (iconName ? ic(iconName) : '') + '<span>' + esc(label) + '</span>');
       c.type = 'button';
+      c.dataset.folder = folderId || '';   // 中鍵開新分頁用（app.js middleTarget）
       if (isCurrent) {
         c.setAttribute('aria-current', 'page');
       } else {
@@ -264,7 +265,7 @@
     const tags = (note.meta && Array.isArray(note.meta.tags)) ? note.meta.tags.slice(0, 4) : [];
     tags.forEach(function (t) {
       const b = el('button', 'dash-row-tag', '#' + esc(t));
-      b.type = 'button'; b.title = '篩選「#' + t + '」';
+      b.type = 'button'; b.title = '篩選「#' + t + '」'; b.dataset.tag = t;
       b.addEventListener('click', function (e) { e.stopPropagation(); if (onPick) onPick(t); });
       box.appendChild(b);
     });
@@ -280,7 +281,7 @@
     tags.forEach(function (t) {
       const active = tagFilter && tagFilter.toLowerCase() === t.tag.toLowerCase();
       const chip = el('button', 'tag-chip' + (active ? ' active' : ''));
-      chip.type = 'button';
+      chip.type = 'button'; chip.dataset.tag = t.tag;
       chip.innerHTML = '<span class="tag-hash">#</span>' + esc(t.tag) + '<span class="tag-count">' + t.count + '</span>';
       chip.addEventListener('click', function () { setTag(active ? null : t.tag); });
       cloud.appendChild(chip);

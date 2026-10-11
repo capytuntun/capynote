@@ -417,6 +417,7 @@
       const c = el('button', 'dash-crumb' + (isCurrent ? ' is-current' : ''),
         (iconName ? ic(iconName) : '') + '<span>' + esc(label) + '</span>');
       c.type = 'button';
+      c.dataset.folder = folderId || ''; c.dataset.area = o.area || '';   // 中鍵開新分頁用（app.js middleTarget）
       if (isCurrent) c.setAttribute('aria-current', 'page');
       else { c.title = '回到「' + label + '」'; c.addEventListener('click', function () { go(folderId, true); }); }
       makeDropTarget(c, folderId, o, true);

@@ -85,7 +85,7 @@
       if (it.type === 'chapter') {
         const ch = it.ch;
         out += '<li class="book-tree-item' + (current && ch.idx === current.idx ? ' active' : '') + '">' +
-          '<a class="book-tree-link" data-idx="' + ch.idx + '" href="' + (exportMode ? '#ch-' + ch.idx : '#') + '">' +
+          '<a class="book-tree-link" data-idx="' + ch.idx + '"' + (exportMode ? '' : ' data-note-id="' + esc(ch.note.id) + '"') + ' href="' + (exportMode ? '#ch-' + ch.idx : '#') + '">' +
           '<span class="book-tree-num">' + esc(ch.num) + '</span>' +
           '<span class="book-tree-title">' + esc(ch.title) + '</span></a></li>';
       } else {
