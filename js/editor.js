@@ -132,6 +132,39 @@
 
     ta.addEventListener('keydown', onKeyDown);
     ta.addEventListener('input', onInput);
+    // 中文輸入法開著時按反引號鍵，打出來的常常是注音第四聲「ˋ」（U+02CB）或全形「｀」（U+FF40）——在等寬字型裡
+    // 跟「`」長得一模一樣，預覽卻不認，行內程式碼整段配錯對（使用者回報過兩次，自己看不出差別）。打字時就換成
+    // 真的反引號：直接打進來的在 beforeinput（capture，比多游標的 beforeinput 先）攔下來改送「`」，輸入法組字送出
+    // 的在 compositionend 把剛送出的那幾個字換掉。都走 insertText，Ctrl+Z 還原得回來。注音的聲調（「ㄅㄚˋ」，
+    // 前一個字是注音符號）不動；貼上的內容也不動。
+    const LOOKALIKE = /[ˋ｀]/;
+    const BOPOMOFO = /[ㄅ-ㄯㆠ-ㆿ]/;
+    function fixTicks(text, prev) {
+      let out = '';
+      for (let i = 0; i < text.length; i++) {
+        const ch = text.charAt(i), before = i ? text.charAt(i - 1) : prev;
+        out += (ch === '｀' || (ch === 'ˋ' && !BOPOMOFO.test(before || ''))) ? '`' : ch;
+      }
+      return out;
+    }
+    ta.addEventListener('beforeinput', function (e) {
+      if (e.inputType !== 'insertText' || !e.data || !LOOKALIKE.test(e.data)) return;
+      const fixed = fixTicks(e.data, ta.value.charAt(ta.selectionStart - 1));
+      if (fixed === e.data) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      document.execCommand('insertText', false, fixed);
+    }, true);
+    ta.addEventListener('compositionend', function (e) {
+      const data = e.data || '';
+      if (!LOOKALIKE.test(data)) return;
+      const end = ta.selectionStart, start = end - data.length;
+      if (start < 0 || ta.selectionEnd !== end || ta.value.slice(start, end) !== data) return;
+      const fixed = fixTicks(data, ta.value.charAt(start - 1));
+      if (fixed === data) return;
+      ta.setSelectionRange(start, end);
+      document.execCommand('insertText', false, fixed);
+    });
     ta.addEventListener('blur', function () { setTimeout(closePopup, 150); });
     ta.addEventListener('scroll', closePopup);
     ta.addEventListener('click', closePopup);
