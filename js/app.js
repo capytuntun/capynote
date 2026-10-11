@@ -6253,7 +6253,8 @@
   }
 
   // Shared with other modules (admin.js reuses the confirm dialog).
-  window.App = { confirm: showConfirm, prompt: showPrompt, toast: toast, reload: loadData };
+  // uploadFiles：封面設計器（js/cover.js，由 pdf.js 打開）上傳 Logo／底圖用——資安院／成效報告的 PDF 也從它們自己的模組開預覽，所以放在 App 上
+  window.App = { confirm: showConfirm, prompt: showPrompt, toast: toast, reload: loadData, uploadFiles: function (files) { return uploadFiles(files, {}); } };
 
   // Go
   init();

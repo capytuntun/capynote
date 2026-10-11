@@ -664,7 +664,31 @@
         '.summary-table .sev-' + lvl + ' { background: ' + c.fg + '; }\n' +
         '.summary-counts .sc-' + lvl + ' { background: ' + c.bg + '; border-color: ' + c.border +
         '; color: ' + c.fg + '; }';
-    })).concat(theme.cover).join('\n');
+    })).concat(theme.cover).concat(global.Cover ? [Cover.css()] : []).join('\n');
+  }
+
+  // 自訂封面的欄位值：設計裡的「標題／作者／客戶／版本／日期／TLP」元素印出來的字
+  function coverCtx(parts, meta, tlp) {
+    return {
+      title: parts.title, author: meta.author || '', client: meta.client || '', version: meta.version || '',
+      generated: parts.created, updated: parts.updated, tlp: tlp.id, tlpColor: tlp.color, logoId: parts.logoId
+    };
+  }
+  // 設計裡用到的圖（Logo、底圖）轉成 data URL——列印文件自己抓不到 /api/images；抓不到的那張略過，不擋整份 PDF
+  function coverImages(design) {
+    const ids = global.Cover ? Cover.imageIds(design) : [];
+    const out = {};
+    return Promise.all(ids.map(function (id) {
+      return Store.getImageBlob(id).then(function (blob) {
+        if (!blob) return;
+        return new Promise(function (resolve) {
+          const r = new FileReader();
+          r.onload = function () { out[id] = r.result; resolve(); };
+          r.onerror = function () { resolve(); };
+          r.readAsDataURL(blob);
+        });
+      }).catch(function () { /* 略過 */ });
+    })).then(function () { return out; });
   }
 
   // Build the printable document.
@@ -691,6 +715,19 @@
         '<span class="v">' + MD.escapeHtml(r[1]) + '</span>';
     }).join('<br>');
 
+    // 自訂封面（meta.cover，js/cover.js 的設計器）：元素絕對定位在 A4 上；沒有就是內建的樣式封面
+    const coverHTML = (global.Cover && Cover.isCustom(meta))
+      ? Cover.html(meta.cover, coverCtx(parts, meta, tlp), parts.coverImages || {})
+      : '<section class="pdf-cover">' +
+        (tlp.id ? '<div class="tlp-badge" style="color:' + tlp.color + '">' +
+          MD.escapeHtml(tlp.id) + '</div>' : '') +
+        (parts.logoSrc ? '<img class="pdf-cover-logo" src="' + parts.logoSrc + '">' : '') +
+        '<div class="kicker">Report</div>' +
+        '<h1>' + MD.escapeHtml(title) + '</h1>' +
+        '<div class="rule"></div>' +
+        '<div class="meta">' + metaHTML + '</div>' +
+        '</section>';
+
     return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">' +
       '<base href="' + base + '">' +
       '<title>' + MD.escapeHtml(title) + '</title>' +
@@ -698,15 +735,7 @@
       '<link rel="stylesheet" href="' + base + 'vendor/hljs-github.min.css">' +
       '<style>' + printCSS(title, theme, opts) + '</style>' +
       '</head><body>' +
-      '<section class="pdf-cover">' +
-      (tlp.id ? '<div class="tlp-badge" style="color:' + tlp.color + '">' +
-        MD.escapeHtml(tlp.id) + '</div>' : '') +
-      (parts.logoSrc ? '<img class="pdf-cover-logo" src="' + parts.logoSrc + '">' : '') +
-      '<div class="kicker">Report</div>' +
-      '<h1>' + MD.escapeHtml(title) + '</h1>' +
-      '<div class="rule"></div>' +
-      '<div class="meta">' + metaHTML + '</div>' +
-      '</section>' +
+      coverHTML +
       parts.toc +
       parts.summary +
       '<article class="pdf-content markdown-body' + (opts.stepPages ? ' pdf-steps' : '') + '">' +
@@ -776,7 +805,12 @@
     Array.prototype.forEach.call(clone.querySelectorAll('.md-toc'), function (n) { n.remove(); });
     // 影片在紙上播不了：換成一行連結
     if (MD.replaceVideosForExport) MD.replaceVideosForExport(clone, 'PDF');
-    return MD.inlineImagesAsDataURL(clone).then(function () {
+    // 內文的封面 Logo（證照範本放的 ![__cover_logo__](img:id)）：id 要在 inline 之前讀，inline 會把 data-img-id 拿掉；
+    // 自訂封面的設計器用它當起始的 Logo 元素
+    const logoEl = clone.querySelector('img.cover-logo');
+    const logoId = logoEl ? logoEl.getAttribute('data-img-id') : null;
+    const meta = note.meta || {};
+    return Promise.all([MD.inlineImagesAsDataURL(clone), coverImages(meta.cover)]).then(function (r) {
       // pull the cover logo out of the body and onto the cover page
       let logoSrc = null;
       const logoImg = clone.querySelector('img.cover-logo');
@@ -784,6 +818,8 @@
       return {
         title: note.title || 'Untitled Note',
         logoSrc: logoSrc,
+        logoId: logoId,
+        coverImages: r[1],
         toc: buildTOC(MD.extractHeadings(clone)),
         summary: buildFindingsSummary(clone),
         findings: MD.extractFindings(clone).length,
@@ -899,6 +935,13 @@
       fields[f[0]] = i;
       cover.appendChild(i);
     });
+    // 封面設計器（js/cover.js）：自己排標題／作者的位置、上傳 Logo；設計存在 meta.cover
+    const designBtn = el('button', 'btn pv-design', '設計封面…');
+    designBtn.type = 'button';
+    const customTag = el('span', 'pv-custom-tag', '自訂封面');
+    if (global.Cover) { cover.appendChild(designBtn); cover.appendChild(customTag); }
+    function syncCustomTag() { customTag.hidden = !(global.Cover && Cover.isCustom(meta)); }
+    syncCustomTag();
     modal.appendChild(cover);
 
     // ---- preview surface ----
@@ -932,16 +975,31 @@
         // 資安院報告是步驟式的，一步一頁（見 printCSS 的 stepPages）
         stepPages: !!meta.secReport
       };
-      // document.write (rather than srcdoc) keeps the frame same-origin, so the
-      // vendor script loads under the app's own policy.
-      boot(frame.contentDocument, buildDoc(parts, opts), opts, function (doc) {
-        if (mine !== renderToken) return;   // a newer render superseded this one
-        const n = doc.querySelectorAll('.pagedjs_page').length;
-        pages.textContent = (n ? '共 ' + n + ' 頁' : '') +
-          (parts.findings ? ' · ' + parts.findings + ' 個弱點' : '');
-        print.disabled = false;
+      // 自訂封面的圖可能剛在設計器裡換過：每次排版前重抓（Store 有快取，沒換的不會再打一次）
+      coverImages(meta.cover).then(function (imgs) {
+        if (mine !== renderToken) return;
+        parts.coverImages = imgs;
+        // document.write (rather than srcdoc) keeps the frame same-origin, so the
+        // vendor script loads under the app's own policy.
+        boot(frame.contentDocument, buildDoc(parts, opts), opts, function (doc) {
+          if (mine !== renderToken) return;   // a newer render superseded this one
+          const n = doc.querySelectorAll('.pagedjs_page').length;
+          pages.textContent = (n ? '共 ' + n + ' 頁' : '') +
+            (parts.findings ? ' · ' + parts.findings + ' 個弱點' : '');
+          print.disabled = false;
+        });
       });
     }
+    designBtn.addEventListener('click', function () {
+      if (!global.Cover) return;
+      const tlp = tlpById(meta.tlp);
+      const ctx = Object.assign(coverCtx(parts, meta, tlp), { themeId: theme, themes: THEMES.map(function (t) { return { id: t.id, name: t.name }; }) });
+      Cover.open(Cover.isCustom(meta) ? meta.cover : null, ctx, {
+        onUpload: o.onUpload || (global.App && App.uploadFiles) || null,
+        onSave: function (design) { meta.cover = design; saveMeta(); syncCustomTag(); render(); },
+        onReset: Cover.isCustom(meta) ? function () { delete meta.cover; saveMeta(); syncCustomTag(); render(); } : null
+      });
+    });
 
     themeSel.addEventListener('change', function () {
       theme = themeSel.value;
@@ -1000,6 +1058,7 @@
     }
     function onKey(e) {
       if (e.target && e.target.tagName === 'INPUT') return; // let text fields handle keys
+      if (document.querySelector('.cv-overlay')) return;    // 設計封面開著：Esc 是它的
       if (e.key === 'Escape') { e.preventDefault(); close(); }
     }
     document.addEventListener('keydown', onKey, true);
