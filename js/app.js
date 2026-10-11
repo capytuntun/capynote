@@ -6197,6 +6197,7 @@
       if ((el = t.closest('.dash-crumb[data-folder]'))) return el.dataset.folder ? fh(folderById(el.dataset.folder)) : (el.dataset.area ? '#' + el.dataset.area : '#');
       if (t.closest('#note-path')) { const n = state.current || (toolBar && toolBar.note()); return n && n.folderId ? fh(folderById(n.folderId)) : null; }
       if ((el = t.closest('.sidebar-nav-item[id]')) && NAV_HASH[el.id]) return NAV_HASH[el.id];
+      if (t.closest('#topbar .logo')) return '#';   // logo = 回首頁
       return null;
     }
     document.addEventListener('mousedown', function (e) {
