@@ -9,9 +9,10 @@
  *     全天行程，eventId 記住它；改日期、改名、完成（標題加 ✓）、刪章節都同步過去，提醒就是那個行程的 reminders
  *     （timetree 頁面開著時會跳瀏覽器通知）。
  *   - 逾期：還沒完成而且預計完成日已經過了 → 頁面上方提示「重新規劃」：整批往後延 N 天、或重新平均分配到某一天。
- * 畫面（#progress 一頁，Progress.render）：左欄課程清單（名稱＋小進度條＋%），右邊是選到的課程：大進度條、完成數、
- * 逾期提示、章節清單（勾完成、點標題改名、筆記、預計完成日、提醒、⋯）、底下輸入新章節。blockHTML 把一門課程畫成靜態
- * 的進度卡（預覽、PDF、電子書）。
+ * 畫面（#progress 一頁，Progress.render）：左欄課程清單（圓環＋名稱＋幾章），右邊是選到的課程：總覽卡（大圓環、幾章完成、
+ * 一格一章的進度條）、逾期提示、章節清單（圓圈裡是編號、勾了變打勾；點標題改名；右邊只放設定了的筆記／日期／提醒 chip，
+ * 沒設定的滑過那列才淡淡出現；日期 chip 點開小選單 duePop，真正的 <input type=date data-due> 藏在列裡給 showPicker 用）、
+ * 底下一列新增。blockHTML 把一門課程畫成靜態的進度卡（預覽、PDF、電子書）。
  */
 (function (global) {
   'use strict';
@@ -194,6 +195,19 @@
     return touched;
   }
 
+  // 圓環：r=17 → 周長 106.8
+  function ring(pct, color) {
+    // 0% 時不畫前景：round 的線端在長度 0 也會留一個點
+    return '<svg class="pg-ring" viewBox="0 0 40 40" aria-hidden="true"><circle class="pg-ring-bg" cx="20" cy="20" r="17"></circle>' + (pct > 0 ? '<circle class="pg-ring-fg" cx="20" cy="20" r="17" style="stroke:' + color + ';stroke-dasharray:' + (pct * 1.068).toFixed(2) + ' 106.8" transform="rotate(-90 20 20)"></circle>' : '') + '</svg>';
+  }
+  function remText(list) { return list.map(function (m) { return REM_TEXT[m] || (m + ' 分鐘前'); }).join('、'); }
+  // 預計完成日的文字＋狀態標籤（列上的日期 chip 和 popover 共用）
+  function dueLabel(ch) {
+    const ds = dueState(ch);
+    if (!ch.due) return '';
+    const n = daysBetween(today(), parseDay(ch.due));
+    return esc(fmtDay(ch.due)) + (ds === 'overdue' ? '<span class="pg-tag is-overdue">逾期 ' + (-n) + ' 天</span>' : ds === 'today' ? '<span class="pg-tag is-today">今天</span>' : ds === 'soon' ? '<span class="pg-tag is-soon">' + n + ' 天後</span>' : '');
+  }
   function render(container, opts) {
     host = container; O = opts || {};
     closePop();
@@ -203,12 +217,19 @@
     host.className = 'pg-page';
     host.innerHTML =
       '<aside class="pg-side">' +
-        '<div class="tt-side-t">課程 <small>' + cs.length + ' 門</small></div><div class="pg-courses">' +
-        (cs.length ? cs.map(function (c) { const st = stats(c.course); return '<button type="button" class="pg-course' + (c.id === S.selected ? ' on' : '') + '" data-course="' + esc(c.id) + '" style="--c:' + c.course.color + '"><span class="pg-course-top"><span class="pg-course-name">' + esc(c.name) + '</span><span class="pg-course-pct">' + st.pct + '%</span></span><span class="pg-mini"><i style="width:' + st.pct + '%"></i></span>' + (st.overdue.length ? '<span class="pg-course-warn">' + ic('alert-triangle') + '逾期 ' + st.overdue.length + ' 章</span>' : '') + '</button>'; }).join('') : '<div class="tt-side-empty">還沒有課程。輸入課程名稱與章節，完成一章就勾一章。</div>') +
-        '</div><button class="tt-side-add" type="button" data-act="new">' + ic('plus') + '<span>建立課程</span></button>' +
-        '<div class="tt-side-foot"><button class="tt-side-add" type="button" data-act="calendar"' + (O.calendar ? '' : ' disabled') + '>' + ic('calendar') + '<span>在 timetree 看「課程管理」</span></button></div>' +
+        '<div class="pg-side-t"><span>課程</span><small>' + cs.length + '</small></div><div class="pg-courses">' +
+        (cs.length ? cs.map(function (c) {
+          const st = stats(c.course);
+          return '<button type="button" class="pg-course' + (c.id === S.selected ? ' on' : '') + '" data-course="' + esc(c.id) + '" style="--c:' + c.course.color + '">' +
+            '<span class="pg-course-ring">' + ring(st.pct, c.course.color) + '</span>' +
+            '<span class="pg-course-body"><span class="pg-course-top"><span class="pg-course-name">' + esc(c.name) + '</span><span class="pg-course-pct">' + st.pct + '%</span></span>' +
+            '<span class="pg-course-sub">' + (st.total ? st.done + ' / ' + st.total + ' 章' : '還沒有章節') + (st.overdue.length ? '<span class="pg-course-warn">' + ic('alert-triangle') + '逾期 ' + st.overdue.length + ' 章</span>' : st.today.length ? '<span class="pg-course-today">今天 ' + st.today.length + ' 章</span>' : '') + '</span></span>' +
+          '</button>';
+        }).join('') : '<div class="pg-side-empty">還沒有課程</div>') +
+        '</div><button class="pg-side-add" type="button" data-act="new">' + ic('plus') + '<span>建立課程</span></button>' +
+        '<div class="pg-side-foot"><button class="pg-side-link" type="button" data-act="calendar"' + (O.calendar ? '' : ' disabled') + '>' + ic('calendar') + '<span>在 timetree 看「課程管理」</span></button></div>' +
       '</aside>' +
-      '<div class="pg-main">' + (S.selected ? '' : '<div class="pg-empty">' + ic('list-checks') + '<p>' + (cs.length ? '選一門課程' : '還沒有課程。點左邊「建立課程」，輸入名稱跟章節（一行一章）。') + '</p></div>') + '</div>';
+      '<div class="pg-main">' + (S.selected ? '' : '<div class="pg-empty">' + ic('list-checks') + '<p>' + (cs.length ? '選一門課程' : '還沒有課程') + '</p>' + (cs.length ? '' : '<p class="pg-empty-sub">輸入課程名稱跟章節，完成一章就勾一章，進度跟 timetree 都會跟著動。</p><button class="tt-btn tt-btn-primary" type="button" data-act="new">' + ic('plus') + '建立課程</button>') + '</div>') + '</div>';
     if (S.selected) renderCourse();
     if (!host.__pgBound) { host.__pgBound = true; bind(); }
   }
@@ -216,35 +237,78 @@
     const c = byId(S.selected); if (!c) return;
     const st = stats(c.course), main = host.querySelector('.pg-main');
     const folder = c.course.folderId ? folderName(c.course.folderId) : null;
+    const left = st.total - st.done;
+    const meta = [];
+    if (st.total && !left) meta.push('<b class="is-ok">全部完成 🎉</b>');
+    else if (st.total) meta.push('剩 ' + left + ' 章');
+    if (st.overdue.length) meta.push('<b class="is-bad">逾期 ' + st.overdue.length + ' 章</b>');
+    if (st.today.length) meta.push('<b class="is-warn">今天 ' + st.today.length + ' 章</b>');
+    if (st.end && left) meta.push('預計 ' + esc(fmtDay(st.end)) + ' 完成');
     main.innerHTML =
-      '<div class="pg-head" style="--c:' + c.course.color + '">' +
+      '<div class="pg-course-page" style="--c:' + c.course.color + '">' +
+      '<header class="pg-head">' +
         '<div class="pg-head-main"><h2 class="pg-name" data-act="rename" title="點一下改名">' + esc(c.name) + '</h2>' +
           '<div class="pg-sub">' +
-            (c.course.folderId ? (folder ? '<button type="button" class="pg-link" data-act="folder">' + ic('folder') + esc(folder) + '</button>' : '<span class="pg-sub-x">綁定的資料夾已不存在</span>') : '<button type="button" class="pg-link is-dim" data-act="bind">' + ic('folder-plus') + '綁定課程筆記資料夾</button>') +
-            (st.end ? '<span class="pg-sub-sep">・</span><span>' + ic('calendar') + '預計 ' + esc(fmtDay(st.end)) + ' 完成</span>' : '') +
-            (c.course.reminders.length ? '<span class="pg-sub-sep">・</span><span>' + ic('bell') + esc(c.course.reminders.map(function (m) { return REM_TEXT[m] || (m + ' 分鐘前'); }).join('、')) + '</span>' : '') +
+            (c.course.folderId ? (folder ? '<button type="button" class="pg-link" data-act="folder" title="打開課程筆記資料夾">' + ic('folder') + esc(folder) + '</button>' : '<span class="pg-sub-x">' + ic('folder') + '綁定的資料夾已不存在</span>') : (c.ro ? '' : '<button type="button" class="pg-link is-dim" data-act="bind">' + ic('folder-plus') + '綁定課程筆記資料夾</button>')) +
+            (c.course.reminders.length ? '<span>' + ic('bell') + esc(remText(c.course.reminders)) + '</span>' : '') +
           '</div></div>' +
         '<div class="pg-head-right">' + (c.ro ? '' : '<button class="tt-btn" type="button" data-act="replan">' + ic('repeat') + '重新規劃</button><button class="tt-btn pg-more" type="button" data-act="menu" title="更多">' + ic('more-horizontal') + '</button>') + '</div>' +
-      '</div>' +
-      '<div class="pg-progress"><div class="pg-bar"><i style="width:' + st.pct + '%;background:' + c.course.color + '"></i></div><div class="pg-pct">' + st.pct + '%</div><div class="pg-count">' + st.done + ' / ' + st.total + ' 章節完成' + (st.total && st.done === st.total ? '　🎉 全部完成' : '') + '</div></div>' +
-      (st.overdue.length ? '<div class="pg-alert">' + ic('alert-triangle') + '<span>有 ' + st.overdue.length + ' 個章節已經過了預計完成日：' + esc(st.overdue.map(function (x) { return x.title; }).slice(0, 3).join('、')) + (st.overdue.length > 3 ? '…' : '') + '。要不要重新規劃？</span>' + (c.ro ? '' : '<button class="tt-btn tt-btn-primary pg-alert-btn" type="button" data-act="replan">重新規劃</button>') + '</div>' : '') +
+      '</header>' +
+      '<section class="pg-overview">' +
+        '<div class="pg-ring-wrap">' + ring(st.pct, c.course.color) + '<div class="pg-pct">' + st.pct + '%</div></div>' +
+        '<div class="pg-ov-body">' +
+          '<div class="pg-count">' + (st.total ? st.done + ' / ' + st.total + ' 章節完成' : '還沒有章節') + '</div>' +
+          (meta.length ? '<div class="pg-ov-meta">' + meta.join('<i class="pg-dot"></i>') + '</div>' : '') +
+          (st.total ? '<div class="pg-segs" title="每一格是一章">' + c.course.chapters.map(function (ch, i) { const ds = dueState(ch); return '<i class="' + (ch.done ? 'is-done' : ds === 'overdue' ? 'is-overdue' : ds === 'today' ? 'is-today' : '') + '" title="' + (i + 1) + '. ' + esc(ch.title) + (ch.done ? '（完成）' : ds === 'overdue' ? '（逾期）' : ds === 'today' ? '（今天）' : '') + '"></i>'; }).join('') + '</div>' : '') +
+        '</div>' +
+      '</section>' +
+      (st.overdue.length ? '<div class="pg-alert">' + ic('alert-triangle') + '<span>有 ' + st.overdue.length + ' 個章節已經過了預計完成日：' + esc(st.overdue.map(function (x) { return x.title; }).slice(0, 3).join('、')) + (st.overdue.length > 3 ? '…' : '') + '。要不要重新規劃？</span>' + (c.ro ? '' : '<button class="tt-btn pg-alert-btn" type="button" data-act="replan">重新規劃</button>') + '</div>' : '') +
       (st.today.length && !st.overdue.length ? '<div class="pg-alert is-info">' + ic('bell') + '<span>今天要完成：' + esc(st.today.map(function (x) { return x.title; }).join('、')) + '</span></div>' : '') +
-      '<div class="pg-chapters">' +
-        (c.course.chapters.length ? '<div class="pg-ch-head"><span></span><span>章節</span><span>筆記</span><span>預計完成</span><span>提醒</span><span></span></div>' : '') +
+      '<section class="pg-chapters">' +
         c.course.chapters.map(function (ch, i) {
           const ds = dueState(ch), nt = ch.noteId ? noteTitle(ch.noteId) : null;
-          return '<div class="pg-ch' + (ch.done ? ' is-done' : '') + (ds ? ' is-' + ds : '') + '" data-ch="' + esc(ch.id) + '">' +
-            '<label class="pg-ch-chk" title="' + (ch.done ? '取消完成' : '完成') + '"><input type="checkbox" data-done="' + esc(ch.id) + '"' + (ch.done ? ' checked' : '') + (c.ro ? ' disabled' : '') + '><i></i></label>' +
-            '<span class="pg-ch-title"><span class="pg-ch-n">' + (i + 1) + '.</span>' + (S.editing === ch.id ? '<input class="tt-input pg-ch-edit" type="text" value="' + esc(ch.title) + '" data-edit="' + esc(ch.id) + '" maxlength="300">' : '<span class="pg-ch-t" data-edit-title="' + esc(ch.id) + '">' + esc(ch.title) + '</span>') + (ch.done && ch.doneAt ? '<span class="pg-ch-doneat">' + esc(fmtDay(dkey(new Date(ch.doneAt)))) + ' 完成</span>' : '') + '</span>' +
-            '<span class="pg-ch-note">' + (ch.noteId ? (nt !== null ? '<button type="button" class="pg-chip" data-open-note="' + esc(ch.noteId) + '" title="打開筆記">' + ic('file-text') + '<span>' + esc(nt) + '</span></button>' : '<button type="button" class="pg-chip is-dim" data-pick-note="' + esc(ch.id) + '" title="筆記已不存在，重新選">' + ic('file-text') + '<span>找不到筆記</span></button>') : (c.ro ? '' : '<button type="button" class="pg-chip is-dim" data-pick-note="' + esc(ch.id) + '">' + ic('file-plus') + '<span>筆記</span></button>')) + '</span>' +
-            '<span class="pg-ch-due"><input class="pg-date" type="date" data-due="' + esc(ch.id) + '" value="' + esc(ch.due) + '"' + (c.ro ? ' disabled' : '') + '>' + (ds === 'overdue' ? '<span class="pg-tag is-overdue">逾期 ' + (-daysBetween(today(), parseDay(ch.due))) + ' 天</span>' : ds === 'today' ? '<span class="pg-tag is-today">今天</span>' : ds === 'soon' ? '<span class="pg-tag is-soon">' + daysBetween(today(), parseDay(ch.due)) + ' 天後</span>' : '') + '</span>' +
-            '<span class="pg-ch-rem"><button type="button" class="pg-chip' + (ch.reminders.length && ch.due ? '' : ' is-dim') + '" data-rem="' + esc(ch.id) + '"' + (c.ro ? ' disabled' : '') + ' title="提醒">' + ic('bell') + '<span>' + (ch.due ? (ch.reminders.length ? esc(ch.reminders.map(function (m) { return REM_TEXT[m] || (m + ' 分鐘前'); }).join('、')) : '無') : '—') + '</span></button></span>' +
-            '<span class="pg-ch-more">' + (c.ro ? '' : '<button type="button" class="pg-icbtn" data-chmenu="' + esc(ch.id) + '" title="更多">' + ic('more-horizontal') + '</button>') + '</span>' +
+          return '<div class="pg-ch' + (ch.done ? ' is-done' : '') + (ds ? ' is-' + ds : '') + (S.editing === ch.id ? ' is-editing' : '') + '" data-ch="' + esc(ch.id) + '">' +
+            '<label class="pg-ch-chk" title="' + (ch.done ? '取消完成' : '完成') + '"><input type="checkbox" data-done="' + esc(ch.id) + '"' + (ch.done ? ' checked' : '') + (c.ro ? ' disabled' : '') + '><i><span class="pg-ch-n">' + (i + 1) + '</span></i></label>' +
+            '<div class="pg-ch-main">' + (S.editing === ch.id ? '<input class="tt-input pg-ch-edit" type="text" value="' + esc(ch.title) + '" data-edit="' + esc(ch.id) + '" maxlength="300">' : '<span class="pg-ch-t" data-edit-title="' + esc(ch.id) + '" title="點一下改名">' + esc(ch.title) + '</span>') + (ch.done && ch.doneAt ? '<span class="pg-ch-doneat">' + ic('check') + esc(fmtDay(dkey(new Date(ch.doneAt)))) + ' 完成</span>' : '') + '</div>' +
+            '<div class="pg-ch-meta">' +
+              (ch.noteId ? (nt !== null ? '<button type="button" class="pg-chip pg-chip-note" data-open-note="' + esc(ch.noteId) + '" title="打開筆記">' + ic('file-text') + '<span>' + esc(nt) + '</span></button>' : '<button type="button" class="pg-chip is-ghost is-bad" data-pick-note="' + esc(ch.id) + '" title="筆記已不存在，重新選">' + ic('file-text') + '<span>找不到筆記</span></button>') : (c.ro ? '' : '<button type="button" class="pg-chip is-ghost" data-pick-note="' + esc(ch.id) + '" title="綁一篇課程筆記">' + ic('file-plus') + '<span>筆記</span></button>')) +
+              (ch.due ? '<button type="button" class="pg-chip pg-chip-due' + (ds ? ' is-' + ds : '') + '" data-due-pick="' + esc(ch.id) + '"' + (c.ro ? ' disabled' : '') + ' title="預計完成日">' + ic('calendar') + '<span>' + dueLabel(ch) + '</span></button>' : (c.ro ? '' : '<button type="button" class="pg-chip is-ghost" data-due-pick="' + esc(ch.id) + '" title="設定預計完成日">' + ic('calendar') + '<span>日期</span></button>')) +
+              '<input class="pg-date-hidden" type="date" data-due="' + esc(ch.id) + '" value="' + esc(ch.due) + '" tabindex="-1"' + (c.ro ? ' disabled' : '') + '>' +
+              (ch.due ? '<button type="button" class="pg-chip pg-chip-rem' + (ch.reminders.length ? ' on' : ' is-ghost') + '" data-rem="' + esc(ch.id) + '"' + (c.ro ? ' disabled' : '') + ' title="' + (ch.reminders.length ? '提醒：' + esc(remText(ch.reminders)) : '設定提醒') + '">' + ic('bell') + '<span>' + (ch.reminders.length ? esc(remText(ch.reminders)) : '提醒') + '</span></button>' : '') +
+              (c.ro ? '' : '<button type="button" class="pg-icbtn" data-chmenu="' + esc(ch.id) + '" title="更多">' + ic('more-horizontal') + '</button>') +
+            '</div>' +
           '</div>';
         }).join('') +
-        (c.ro ? '' : '<form class="pg-add"><span class="pg-ch-n">' + (c.course.chapters.length + 1) + '.</span>' + ic('plus') + '<input class="pg-add-input" type="text" placeholder="新增章節，按 Enter 加入（可以一次貼好幾行）" maxlength="300"><input class="pg-date" type="date" title="預計完成日（可不填）"></form>') +
-      '</div>';
+        (c.course.chapters.length || c.ro ? '' : '<div class="pg-ch-none">還沒有章節，在下面輸入第一章。</div>') +
+        (c.ro ? '' : '<form class="pg-add"><span class="pg-add-ic">' + ic('plus') + '</span><input class="pg-add-input" type="text" placeholder="新增章節，按 Enter 加入（一次貼好幾行也可以）" maxlength="300"><button type="button" class="pg-chip is-ghost pg-add-date" data-add-date title="預計完成日（可不填）">' + ic('calendar') + '<span>日期</span></button><input class="pg-date pg-date-hidden" type="date" tabindex="-1"></form>') +
+      '</section></div>';
     if (S.editing) { const inp = main.querySelector('[data-edit]'); if (inp) { inp.focus(); inp.select(); } }
+  }
+  // 原生日期選擇器：藏起來的 <input type=date> 用 showPicker 打開（要在使用者的點擊裡呼叫）
+  function openPicker(inp) {
+    if (!inp) return;
+    try { if (inp.showPicker) { inp.showPicker(); return; } } catch (e) { /* 沒有使用者手勢等 → 退回 focus */ }
+    inp.focus(); try { inp.click(); } catch (e) { /* */ }
+  }
+  // 日期 chip 的小選單：今天／明天／三天後／下週／自己選／清掉
+  function duePop(chId, anchor) {
+    const c = byId(S.selected); if (!c || c.ro) return;
+    const ch = c.course.chapters.find(function (x) { return x.id === chId; }); if (!ch) return;
+    closePop();
+    const t = today();
+    const quick = [['今天', dkey(t)], ['明天', dkey(addDays(t, 1))], ['3 天後', dkey(addDays(t, 3))], ['下週', dkey(addDays(t, 7))]];
+    popEl = el('div', 'tt-pop pg-pop pg-duepop');
+    popEl.innerHTML = '<div class="tt-pop-label">預計完成日' + (ch.due ? '：' + esc(fmtDay(ch.due)) : '') + '</div>' +
+      '<div class="pg-quick">' + quick.map(function (q) { return '<button type="button" class="tt-rem' + (ch.due === q[1] ? ' on' : '') + '" data-d="' + q[1] + '">' + q[0] + '</button>'; }).join('') + '</div>' +
+      '<div class="pg-duepop-row"><button type="button" class="tt-btn" data-pick="1">' + ic('calendar') + '選日期…</button>' + (ch.due ? '<button type="button" class="tt-btn" data-clear="1">清掉日期</button>' : '') + '</div>';
+    const r = anchor.getBoundingClientRect(); placeFixed(popEl, r.left, r.bottom + 4);
+    popEl.addEventListener('click', function (e) {
+      const inp = host.querySelector('[data-due="' + ch.id + '"]');
+      const q = e.target.closest('[data-d]');
+      if (q) { closePop(); ch.due = q.getAttribute('data-d'); commit(c, [ch]); return; }
+      if (e.target.closest('[data-clear]')) { closePop(); ch.due = ''; commit(c, [ch]); return; }
+      if (e.target.closest('[data-pick]')) { closePop(); openPicker(inp); }
+    });
   }
 
   // ---- 事件 ----
@@ -306,6 +370,16 @@
       const ch = c.course.chapters.find(function (x) { return x.id === due.getAttribute('data-due'); }); if (!ch) return;
       ch.due = parseDay(due.value) ? due.value : '';
       commit(c, [ch]);
+      return;
+    }
+    // 新增列的日期：chip 顯示選到的日期
+    const addDate = e.target.closest('.pg-add .pg-date');
+    if (addDate) {
+      const chip = host.querySelector('.pg-add-date'); if (!chip) return;
+      const v = parseDay(addDate.value) ? addDate.value : '';
+      chip.classList.toggle('is-ghost', !v); chip.classList.toggle('on', !!v);
+      chip.querySelector('span').textContent = v ? fmtDay(v) : '日期';
+      const inp = host.querySelector('.pg-add-input'); if (inp) inp.focus();
     }
   }
   function onClick(e) {
@@ -313,6 +387,8 @@
     const on = e.target.closest('[data-open-note]'); if (on) { if (O.onOpenNote) O.onOpenNote(on.getAttribute('data-open-note')); return; }
     const pn = e.target.closest('[data-pick-note]'); if (pn) { pickNote(pn.getAttribute('data-pick-note'), pn); return; }
     const rm = e.target.closest('[data-rem]'); if (rm) { reminderPop(rm.getAttribute('data-rem'), rm); return; }
+    const dp = e.target.closest('[data-due-pick]'); if (dp) { duePop(dp.getAttribute('data-due-pick'), dp); return; }
+    const ad = e.target.closest('[data-add-date]'); if (ad) { openPicker(host.querySelector('.pg-add .pg-date')); return; }
     const cm = e.target.closest('[data-chmenu]'); if (cm) { chapterMenu(cm.getAttribute('data-chmenu'), cm); return; }
     const et = e.target.closest('[data-edit-title]'); if (et) { const c = byId(S.selected); if (c && !c.ro) { S.editing = et.getAttribute('data-edit-title'); render(host, O); } return; }
     const ab = e.target.closest('[data-act]'); if (ab && host.contains(ab)) { act(ab.getAttribute('data-act'), ab); }
@@ -408,7 +484,8 @@
       ch.reminders.sort(function (p, q) { return p - q; });
       b.classList.toggle('on');
       syncEvents(c, [ch]); save(c);
-      const chip = host.querySelector('[data-rem="' + ch.id + '"] span'); if (chip) chip.textContent = ch.due ? (ch.reminders.length ? ch.reminders.map(function (x) { return REM_TEXT[x]; }).join('、') : '無') : '—';
+      const chip = host.querySelector('[data-rem="' + ch.id + '"]');
+      if (chip) { chip.classList.toggle('on', !!ch.reminders.length); chip.classList.toggle('is-ghost', !ch.reminders.length); chip.querySelector('span').textContent = ch.reminders.length ? remText(ch.reminders) : '提醒'; chip.title = ch.reminders.length ? '提醒：' + remText(ch.reminders) : '設定提醒'; }
     });
   }
   function colorPop(anchor, c) {
