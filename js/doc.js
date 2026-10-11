@@ -14,7 +14,8 @@
  * @page 的邊界盒）、下載 Word（純瀏覽器端寫出 .docx）、頁面設定（紙張、方向、上下邊界、頁首／頁尾、頁碼：
  * 位置、格式、可以決定起始頁碼、第一頁不顯示；存在 meta.docPage）、目錄（從標題 1～4 做出來、打字時自己更新、
  * 列印時頁碼用 target-counter 算）、字數統計、尋找與取代。頁面是一張白紙（816px、1 吋邊界）放在灰底上，
- * 紙的上下各一條頁首／頁尾（雙擊編輯）。
+ * 紙的上下各一條頁首／頁尾（雙擊編輯）。程式碼區塊有語言（右上角的語言列選）、語法上色、行號，Tab 是四個空白、
+ * 選多行時整段縮排，Enter 保留上一行的縮排。
  */
 (function (global) {
   'use strict';
@@ -67,7 +68,7 @@
       if (id) { img.setAttribute('data-img-id', id); img.setAttribute('src', 'img:' + id); }
     });
     clone.querySelectorAll('.gd-toc-tools').forEach(function (n) { n.remove(); });
-    clone.querySelectorAll('pre').forEach(function (pre) { pre.textContent = preText(pre); });
+    clone.querySelectorAll('pre').forEach(function (pre) { pre.textContent = preText(pre); pre.removeAttribute('data-gd-ln'); pre.removeAttribute('data-gd-lnw'); });
     clone.querySelectorAll('[contenteditable]').forEach(function (n) { n.removeAttribute('contenteditable'); });
     return clone.innerHTML;
   }
@@ -90,6 +91,119 @@
     const walk = function (n) { Array.prototype.forEach.call(n.childNodes, function (c) { if (c.nodeType === 3) out += c.nodeValue; else if (c.nodeName === 'BR') out += '\n'; else walk(c); }); };
     walk(pre);
     return out.replace(/\n$/, '');
+  }
+
+  // ---------------- 程式碼區塊：語言、上色、行號 ----------------
+  // 語言存在 <pre class="gd-code" data-lang="python">；沒寫就跟 Markdown 筆記沒標語言的圍欄一樣用 bash 文法——它很
+  // 保守，貼進來的終端輸出（nmap、whoami、雜湊）幾乎一個字都不會被上色，指令才會。data-ln="off" 是使用者把行號關了，
+  // 預設有行號。上色在編輯器裡不碰 DOM：用 CSS Custom Highlight API 把 Range 加進 gd-t-* 幾個 Highlight（顏色寫在
+  // app.css 的 ::highlight()），所以原生的復原／重做、游標、存進去的純文字都跟沒上色時一樣；預覽、PDF、電子書是靜態的，
+  // 直接包 <span class="gd-t-*">，一行一個 .gd-cl（staticCode）。
+  const CODE_LANGS = [['', 'Shell（預設）'], ['plaintext', '純文字'], ['powershell', 'PowerShell'], ['dos', 'CMD / Batch'],
+    ['python', 'Python'], ['javascript', 'JavaScript'], ['typescript', 'TypeScript'], ['json', 'JSON'], ['xml', 'HTML / XML'],
+    ['css', 'CSS'], ['scss', 'SCSS'], ['sql', 'SQL'], ['c', 'C'], ['cpp', 'C++'], ['csharp', 'C#'], ['java', 'Java'],
+    ['kotlin', 'Kotlin'], ['go', 'Go'], ['rust', 'Rust'], ['php', 'PHP'], ['ruby', 'Ruby'], ['perl', 'Perl'], ['lua', 'Lua'],
+    ['swift', 'Swift'], ['objectivec', 'Objective-C'], ['vbnet', 'VB.NET'], ['r', 'R'], ['yaml', 'YAML'], ['ini', 'INI / TOML'],
+    ['makefile', 'Makefile'], ['diff', 'Diff'], ['markdown', 'Markdown'], ['graphql', 'GraphQL']];
+  const LANG_OK = {};
+  CODE_LANGS.forEach(function (x) { LANG_OK[x[0]] = 1; });
+  function codeLang(pre) { const v = String(pre.getAttribute('data-lang') || '').toLowerCase(); return LANG_OK[v] ? v : ''; }
+  // hljs 的 class → 顏色群組，照 GitHub 淺色主題分（紙永遠是白的）
+  const TOKEN_GROUP = { keyword: 'kw', doctag: 'kw', 'template-tag': 'kw', 'template-variable': 'kw', type: 'kw', title: 'fn',
+    attr: 'con', attribute: 'con', literal: 'con', meta: 'con', number: 'con', operator: 'con', variable: 'con', section: 'con',
+    'selector-attr': 'con', 'selector-class': 'con', 'selector-id': 'con', string: 'str', regexp: 'str', built_in: 'bi', symbol: 'bi',
+    comment: 'com', code: 'com', formula: 'com', name: 'tag', quote: 'tag', 'selector-pseudo': 'tag', 'selector-tag': 'tag',
+    bullet: 'bul', addition: 'add', deletion: 'del' };
+  const TOKEN_GROUPS = ['kw', 'fn', 'con', 'str', 'bi', 'com', 'tag', 'bul', 'add', 'del'];
+  const TOKEN_HEX = { kw: 'D73A49', fn: '6F42C1', con: '005CC5', str: '032F62', bi: 'E36209', com: '6A737D', tag: '22863A', bul: '735C0F', add: '22863A', del: 'B31D28' };
+  function tokenGroup(cls) {
+    const parts = String(cls).split(/\s+/), m = /^hljs-(.+)$/.exec(parts[0] || '');
+    if (!m) return null;
+    if (m[1] === 'subst') return '';   // 字串裡的 ${…}：回到一般文字的顏色
+    if (m[1] === 'variable' && parts.indexOf('language_') >= 0) return 'kw';
+    return TOKEN_GROUP[m[1]] || null;
+  }
+  function unent(s) { return s.replace(/&(amp|lt|gt|quot|#x27|#39);/g, function (m, k) { return { amp: '&', lt: '<', gt: '>', quot: '"', '#x27': "'", '#39': "'" }[k]; }); }
+  // 一段程式碼 → [{ s, e, g }]（字的位置與顏色群組）：每個字只算最裡面那一層有顏色的 token
+  function codeSegments(text, lang) {
+    if (!text || lang === 'plaintext' || !global.hljs) return [];
+    const name = lang || 'bash';
+    if (!hljs.getLanguage(name)) return [];
+    let html;
+    try { html = hljs.highlight(text, { language: name, ignoreIllegals: true }).value; } catch (e) { return []; }
+    const out = [], stack = [];
+    let pos = 0, m;
+    const re = /<span class="([^"]*)">|<\/span>|([^<]+)/g;
+    while ((m = re.exec(html))) {
+      if (m[2] !== undefined) {
+        const len = unent(m[2]).length;
+        let g = null;
+        for (let i = stack.length - 1; i >= 0; i--) { if (stack[i] === '') break; if (stack[i]) { g = stack[i]; break; } }
+        if (g && len) {
+          const last = out[out.length - 1];
+          if (last && last.g === g && last.e === pos) last.e += len; else out.push({ s: pos, e: pos + len, g: g });
+        }
+        pos += len;
+      } else if (m[0] === '</span>') stack.pop();
+      else stack.push(tokenGroup(m[1]));
+    }
+    return pos === text.length ? out : [];   // 對不上就寧可不上色，也不要塗錯位置
+  }
+  // 程式碼切成一行一段 HTML，token 跨行的地方在行尾切開
+  function codeLinesHTML(text, lang) {
+    const segs = codeSegments(text, lang);
+    let off = 0, k = 0;
+    return text.split('\n').map(function (ln) {
+      const ls = off, le = off + ln.length;
+      let html = '', p = ls;
+      while (k < segs.length && segs[k].e <= ls) k++;
+      for (let i = k; i < segs.length && segs[i].s < le; i++) {
+        const s = Math.max(segs[i].s, ls), e = Math.min(segs[i].e, le);
+        if (s > p) html += esc(text.slice(p, s));
+        html += '<span class="gd-t-' + segs[i].g + '">' + esc(text.slice(s, e)) + '</span>';
+        p = e;
+      }
+      if (p < le) html += esc(text.slice(p, le));
+      off = le + 1;
+      return html;
+    });
+  }
+  // 靜態的程式碼區塊（預覽、電子書、公開連結、PDF）：一行一個 .gd-cl，行號是 data-n（不用 CSS 計數器——paged.js 把
+  // 區塊切到下一頁時會複製一個 <pre>，計數器會從 1 重來）
+  function staticCode(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('pre.gd-code:not(.gd-static)'), function (pre) {
+      const lines = codeLinesHTML(preText(pre), codeLang(pre));
+      const ln = pre.getAttribute('data-ln') !== 'off';
+      pre.classList.add('gd-static');
+      pre.classList.toggle('gd-has-ln', ln);
+      pre.removeAttribute('data-gd-ln');
+      pre.setAttribute('data-gd-lnw', String(Math.max(2, String(lines.length).length)));
+      pre.innerHTML = lines.map(function (h, i) { return '<span class="gd-cl" data-n="' + (i + 1) + '">' + h + '</span>'; }).join('');
+    });
+    return root;
+  }
+  // MD.render 用：Markdown 筆記沒有這種區塊，只有文件（HTML 內容）有
+  function staticCodeHTML(html) {
+    const t = document.createElement('template');
+    t.innerHTML = html;
+    staticCode(t.content);
+    return t.innerHTML;
+  }
+  // 列印用的樣式（文件自己的 PDF、pdf.js 的報告 PDF 都用這份）：app.css 進不了列印文件，行號欄與顏色在這裡重寫一次
+  function codePrintCSS(scope) {
+    const p = scope + ' pre.gd-code';
+    const out = [
+      p + ' .gd-cl { display: block; position: relative; min-height: 1.45em; }',
+      p + '.gd-has-ln::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: calc(2ch + 14pt); background: #e8eaed; border-right: 1px solid #dadce0; border-radius: 3pt 0 0 3pt; }',
+      p + '.gd-has-ln { padding-left: calc(2ch + 22pt); }',
+      p + '.gd-has-ln .gd-cl::before { content: attr(data-n); position: absolute; top: 0; right: calc(100% + 14pt); color: #80868b; }'
+    ];
+    [3, 4, 5].forEach(function (d) {
+      out.push(p + '.gd-has-ln[data-gd-lnw="' + d + '"] { padding-left: calc(' + d + 'ch + 22pt); } ' + p + '.gd-has-ln[data-gd-lnw="' + d + '"]::before { width: calc(' + d + 'ch + 14pt); }');
+    });
+    TOKEN_GROUPS.forEach(function (g) { out.push(p + ' .gd-t-' + g + ' { color: #' + TOKEN_HEX[g] + '; }'); });
+    out.push(p + ' .gd-t-add { background: #f0fff4; } ' + p + ' .gd-t-del { background: #ffeef0; }');
+    return out.join('\n');
   }
 
   // ---------------- 彈窗 ----------------
@@ -144,6 +258,7 @@
     clone.querySelectorAll('.gd-toc-tools, .gd-hf').forEach(function (x) { x.remove(); });
     clone.querySelectorAll('[contenteditable]').forEach(function (x) { x.removeAttribute('contenteditable'); });
     clone.querySelectorAll('img').forEach(function (img) { const id = img.getAttribute('data-img-id'); if (id) img.setAttribute('src', '/api/images/' + id); });
+    staticCode(clone);
     const base = location.origin + '/';
     const numContent = p.numFmt === 'page-n' ? '"第 " counter(page) " 頁"' : p.numFmt === 'n-of-total' ? 'counter(page) " / " counter(pages)' : 'counter(page)';
     const boxes = {};
@@ -167,7 +282,8 @@
       '.gd-print a { color: #1155cc; } .gd-print img { max-width: 100%; height: auto; }',
       '.gd-print table { border-collapse: collapse; width: 100%; margin: 6pt 0; table-layout: fixed; } .gd-print td, .gd-print th { border: 1px solid #000; padding: 4pt 6pt; vertical-align: top; word-wrap: break-word; }',
       '.gd-print hr { border: 0; border-top: 1px solid #000; margin: 10pt 0; } .gd-print ul, .gd-print ol { margin: 0; padding-left: 36pt; }',
-      '.gd-print pre.gd-code { font-family: "Courier New", Consolas, monospace; font-size: 10pt; background: #f1f3f4; border: 1px solid #dadce0; border-radius: 4pt; padding: 8pt 10pt; white-space: pre-wrap; word-wrap: break-word; margin: 6pt 0; }',
+      '.gd-print pre.gd-code { position: relative; font-family: "Courier New", Consolas, monospace; font-size: 10pt; line-height: 1.45; tab-size: 4; background: #f1f3f4; border: 1px solid #dadce0; border-radius: 4pt; padding: 8pt 10pt; white-space: pre-wrap; word-wrap: break-word; margin: 6pt 0; }',
+      codePrintCSS('.gd-print'),
       '.gd-print .gd-pagebreak { display: block; break-after: page; page-break-after: always; height: 1px; margin: 0; border: 0; visibility: hidden; }',
       '.gd-print .gd-pagebreak + * { break-before: page; page-break-before: always; }',
       '.gd-print .gd-toc { margin: 6pt 0 12pt; } .gd-print .gd-toc-t { font-size: 14pt; margin: 0 0 6pt; } .gd-print .gd-toc ol { list-style: none; margin: 0; padding: 0; }',
@@ -387,7 +503,26 @@
         if (el.classList.contains('gd-hf') || el.classList.contains('gd-toc-tools')) return;
         if (/^h[1-6]$/.test(tag)) { s += para(el, { style: 'Heading' + tag[1] }); return; }
         if (tag === 'blockquote') { s += hasBlock(el) ? Array.prototype.map.call(el.children, function (c) { return para(c, { style: 'Quote' }); }).join('') : para(el, { style: 'Quote' }); return; }
-        if (tag === 'pre') { preText(el).split('\n').forEach(function (ln) { s += '<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr>' + run(ln || ' ', { font: 'Courier New', sz: 20 }) + '</w:p>'; }); return; }
+        if (tag === 'pre') {
+          // 一行一段 Code，token 的顏色照編輯器上色的群組（Word 沒有逐段的行號，行號不帶過去）
+          const text = preText(el), segs = codeSegments(text, codeLang(el));
+          let off = 0, k = 0;
+          text.split('\n').forEach(function (ln) {
+            const ls = off, le = off + ln.length;
+            let runs = '', p0 = ls;
+            while (k < segs.length && segs[k].e <= ls) k++;
+            for (let i = k; i < segs.length && segs[i].s < le; i++) {
+              const a = Math.max(segs[i].s, ls), z = Math.min(segs[i].e, le);
+              if (a > p0) runs += run(text.slice(p0, a), { font: 'Courier New', sz: 20 });
+              runs += run(text.slice(a, z), { font: 'Courier New', sz: 20, color: TOKEN_HEX[segs[i].g] });
+              p0 = z;
+            }
+            if (p0 < le) runs += run(text.slice(p0, le), { font: 'Courier New', sz: 20 });
+            s += '<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr>' + (runs || run(' ', { font: 'Courier New', sz: 20 })) + '</w:p>';
+            off = le + 1;
+          });
+          return;
+        }
         if (tag === 'ul') { s += list(el, 1, 0); return; }
         if (tag === 'ol') { s += list(el, newNum(1), 0); return; }
         if (tag === 'table') { s += table(el); return; }
@@ -559,7 +694,7 @@
       setStatus('儲存中…');
       return Promise.resolve(opts.onChange(toStored(paper))).then(function () { if (!closed && !dirty) setStatus('已儲存', 'is-ok'); }, function () { if (!closed) setStatus('儲存失敗', 'is-err'); });
     }
-    function changed() { dirty = true; setStatus('尚未儲存'); clearTimeout(saveTimer); saveTimer = setTimeout(emit, 500); count(); }
+    function changed() { dirty = true; setStatus('尚未儲存'); clearTimeout(saveTimer); saveTimer = setTimeout(emit, 500); count(); syncCode(false); }
 
     // ---- 選取範圍：工具列按下去會搶焦點，先記住再還回去 ----
     function saveRange() {
@@ -580,6 +715,243 @@
       try { document.execCommand(cmd, false, val); } catch (e) { /* */ }
       saveRange();
       changed(); refresh();
+    }
+
+    // ---- 程式碼區塊：上色（Custom Highlight API）、行號（區塊自己的 ::before）、右上角的語言列 ----
+    // 行號畫在 <pre> 的 ::before，內容是 data-gd-ln（「1\n2\n\n3」：折到下一列的那幾列留白，所以長行折行時號碼還是
+    // 對著該行的第一列）；data-gd-lnw 是位數，決定左邊留多寬。兩個屬性都只在編輯器裡，存檔時 toStored 拿掉。
+    const sheet = host.querySelector('.gd-sheet');
+    const HL = !!(global.CSS && CSS.highlights && typeof global.Highlight === 'function');
+    const hlSets = {};
+    if (HL) TOKEN_GROUPS.forEach(function (g) { const h = new Highlight(); h.priority = -1; hlSets[g] = h; CSS.highlights.set('gd-t-' + g, h); });
+    const codeState = new Map();   // pre → { key: 語言＋行號設定＋文字, ranges: [[群組, Range]] }
+    // 區塊的純文字（<br> 算一個換行）與「第 k 個字在 DOM 的哪裡」
+    function codeMap(pre) {
+      const pieces = [];
+      let text = '';
+      (function walk(n) {
+        Array.prototype.forEach.call(n.childNodes, function (c) {
+          if (c.nodeType === 3) { pieces.push({ n: c, s: text.length }); text += c.nodeValue; }
+          else if (c.nodeName === 'BR') { pieces.push({ n: c, s: text.length, br: true }); text += '\n'; }
+          else if (c.nodeType === 1) walk(c);
+        });
+      })(pre);
+      function at(k) {
+        let lo = 0, hi = pieces.length - 1, f = -1;
+        while (lo <= hi) { const mid = (lo + hi) >> 1; if (pieces[mid].s <= k) { f = mid; lo = mid + 1; } else hi = mid - 1; }
+        if (f < 0) return { node: pre, offset: 0 };
+        const p = pieces[f];
+        if (!p.br && k - p.s <= p.n.nodeValue.length) return { node: p.n, offset: k - p.s };
+        const idx = Array.prototype.indexOf.call(p.n.parentNode.childNodes, p.n);
+        return { node: p.n.parentNode, offset: k === p.s ? idx : idx + 1 };
+      }
+      return { text: text, at: at };
+    }
+    // 畫面上看得到幾行：最後一個換行（Chrome 在區塊尾巴放的 <br>）不會多出一行
+    function visibleLines(text) { const n = text.split('\n').length; return text.charAt(text.length - 1) === '\n' ? n - 1 : n; }
+    function unpaint(pre) { const st = codeState.get(pre); if (st) st.ranges.forEach(function (x) { hlSets[x[0]].delete(x[1]); }); }
+    function paintCode(pre, m) {
+      unpaint(pre);
+      const ranges = [];
+      if (HL) codeSegments(m.text, codeLang(pre)).forEach(function (sg) {
+        const a = m.at(sg.s), z = m.at(sg.e);
+        try { const r = document.createRange(); r.setStart(a.node, a.offset); r.setEnd(z.node, z.offset); hlSets[sg.g].add(r); ranges.push([sg.g, r]); } catch (e) { /* */ }
+      });
+      return ranges;
+    }
+    function numberCode(pre, m) {
+      if (pre.getAttribute('data-ln') === 'off') { pre.removeAttribute('data-gd-ln'); pre.removeAttribute('data-gd-lnw'); return; }
+      const n = visibleLines(m.text);
+      const w = String(Math.max(2, String(n).length));
+      if (pre.getAttribute('data-gd-lnw') !== w) pre.setAttribute('data-gd-lnw', w);
+      if (!pre.hasAttribute('data-gd-ln')) pre.setAttribute('data-gd-ln', '1');   // 左邊先留好寬度，量折行才準
+      const cs = getComputedStyle(pre), lh = parseFloat(cs.lineHeight) || 19;
+      const inner = pre.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+      const nums = [];
+      if (Math.round(inner / lh) <= n) { for (let i = 1; i <= n; i++) nums.push(i); }
+      else {
+        // 有行折到下一列：一行一行量它占幾列（每列的 top 不同），折出來的列行號留白
+        const parts = m.text.split('\n');
+        let off = 0;
+        for (let i = 0; i < n; i++) {
+          let rows = 1;
+          if (parts[i].length) {
+            const a = m.at(off), z = m.at(off + parts[i].length), r = document.createRange();
+            r.setStart(a.node, a.offset); r.setEnd(z.node, z.offset);
+            const tops = [];
+            Array.prototype.forEach.call(r.getClientRects(), function (c) {
+              if (c.width < 0.5) return;
+              if (!tops.some(function (t) { return Math.abs(t - c.top) < lh / 2; })) tops.push(c.top);
+            });
+            rows = Math.max(1, tops.length);
+          }
+          nums.push(i + 1);
+          for (let k = 1; k < rows; k++) nums.push('');
+          off += parts[i].length + 1;
+        }
+      }
+      const v = nums.join('\n');
+      if (pre.getAttribute('data-gd-ln') !== v) pre.setAttribute('data-gd-ln', v);
+    }
+    // 文字或語言變了的區塊重新上色、重算行號；all（紙的寬度變了、剛載入）是每個區塊都重算行號
+    function syncCode(all) {
+      codeState.forEach(function (st, pre) { if (!paper.contains(pre)) { unpaint(pre); codeState.delete(pre); } });
+      Array.prototype.forEach.call(paper.querySelectorAll('pre'), function (pre) {
+        if (!pre.classList.contains('gd-code')) pre.classList.add('gd-code');   // 貼進來的 <pre> 也是程式碼區塊
+        const m = codeMap(pre), key = codeLang(pre) + '\u0000' + (pre.getAttribute('data-ln') || '') + '\u0000' + m.text;
+        const st = codeState.get(pre), fresh = !st || st.key !== key;
+        if (fresh) codeState.set(pre, { key: key, ranges: paintCode(pre, m) });
+        if (fresh || all) numberCode(pre, m);
+      });
+      placeCodeBar();
+    }
+    let lastPaperW = 0;
+    const codeRO = typeof ResizeObserver === 'function' ? new ResizeObserver(function () {
+      const w = paper.clientWidth;
+      if (w !== lastPaperW) { lastPaperW = w; syncCode(true); }
+    }) : null;
+    if (codeRO) codeRO.observe(paper);
+
+    // 右上角的語言列：游標在區塊裡、或滑鼠停在區塊上時出現。放在 .gd-sheet 裡（不在紙裡），不會變成內容的一部分
+    let codeBar = null, langSel = null, barPre = null, hoverPre = null, barTimer = null;
+    if (!ro && sheet) {
+      codeBar = el('div', 'gd-code-bar');
+      codeBar.hidden = true;
+      codeBar.innerHTML = '<select class="gd-code-lang" title="程式語言（決定怎麼上色）">' + CODE_LANGS.map(function (x) { return '<option value="' + x[0] + '">' + esc(x[1]) + '</option>'; }).join('') + '</select>' +
+        '<button type="button" class="gd-code-btn" data-code="ln" title="顯示／隱藏行號">' + ic('list-ordered') + '</button>' +
+        '<button type="button" class="gd-code-btn" data-code="copy" title="複製程式碼">' + ic('copy') + '</button>';
+      sheet.appendChild(codeBar);
+      langSel = codeBar.querySelector('.gd-code-lang');
+      codeBar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });
+      codeBar.addEventListener('mouseenter', function () { clearTimeout(barTimer); });
+      codeBar.addEventListener('mouseleave', leaveSoon);
+      codeBar.addEventListener('click', function (e) {
+        const b = e.target.closest('[data-code]');
+        const pre = barPre;
+        if (!b || !pre || !paper.contains(pre)) return;
+        if (b.getAttribute('data-code') === 'ln') {
+          if (pre.getAttribute('data-ln') === 'off') pre.removeAttribute('data-ln'); else pre.setAttribute('data-ln', 'off');
+          changed();
+          return;
+        }
+        copyText(preText(pre)).then(function () { b.classList.add('is-done'); setTimeout(function () { b.classList.remove('is-done'); }, 1200); }, function () {});
+      });
+      langSel.addEventListener('change', function () {
+        const pre = barPre;
+        if (!pre || !paper.contains(pre)) return;
+        if (langSel.value) pre.setAttribute('data-lang', langSel.value); else pre.removeAttribute('data-lang');
+        restoreRange(); changed();
+      });
+      langSel.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Escape') restoreRange(); });
+      paper.addEventListener('mousemove', function (e) {
+        const p = e.target.closest ? e.target.closest('pre') : null;
+        const hit = p && paper.contains(p) ? p : null;
+        if (hit) clearTimeout(barTimer);
+        if (hit === hoverPre) return;
+        hoverPre = hit; placeCodeBar();
+      });
+      // 從區塊移到語言列上會先離開紙：晚一點再收，語言列的 mouseenter 來得及取消
+      paper.addEventListener('mouseleave', leaveSoon);
+    }
+    function leaveSoon() { clearTimeout(barTimer); barTimer = setTimeout(function () { hoverPre = null; placeCodeBar(); }, 250); }
+    function copyText(t) {
+      if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+      const ta = document.createElement('textarea');
+      ta.value = t; ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove(); restoreRange();
+      return ok ? Promise.resolve() : Promise.reject(new Error('copy'));
+    }
+    function blockPre(n) {
+      if (!n) return null;
+      if (n.nodeType === 3) n = n.parentNode;
+      const p = n && n.closest ? n.closest('pre') : null;
+      return p && paper.contains(p) ? p : null;
+    }
+    function placeCodeBar() {
+      if (!codeBar) return;
+      let pre = (codeBar.contains(document.activeElement) && barPre && paper.contains(barPre)) ? barPre : null;
+      if (!pre && hoverPre && paper.contains(hoverPre)) pre = hoverPre;
+      if (!pre && document.activeElement === paper) { const s = window.getSelection(); pre = s && s.rangeCount ? blockPre(s.anchorNode) : null; }
+      barPre = pre;
+      if (!pre) { codeBar.hidden = true; return; }
+      codeBar.hidden = false;
+      if (document.activeElement !== langSel) langSel.value = codeLang(pre);
+      codeBar.querySelector('[data-code="ln"]').classList.toggle('on', pre.getAttribute('data-ln') !== 'off');
+      const sr = sheet.getBoundingClientRect(), pr = pre.getBoundingClientRect();
+      codeBar.style.top = Math.round(pr.top - sr.top + 4) + 'px';
+      codeBar.style.right = Math.round(sr.right - pr.right + 4) + 'px';
+    }
+
+    // ---- 程式碼區塊裡的按鍵：Tab 是四個空白、多行一起縮排，Enter 照上一行的縮排，Backspace 在行首空白一次退一格 ----
+    // 全部走 execCommand('insertText'／'delete')：原生的復原一步就能還原，input 事件照樣觸發存檔與上色
+    function selPre() {
+      const s = window.getSelection();
+      if (!s || !s.rangeCount) return null;
+      const r = s.getRangeAt(0), pre = blockPre(r.startContainer);
+      return pre && pre === blockPre(r.endContainer) ? pre : null;
+    }
+    function preOffset(pre, node, off) {
+      const r = document.createRange();
+      r.setStart(pre, 0); r.setEnd(node, off);
+      let k = 0;
+      (function walk(n) { Array.prototype.forEach.call(n.childNodes, function (c) { if (c.nodeType === 3) k += c.nodeValue.length; else if (c.nodeName === 'BR') k++; else if (c.nodeType === 1) walk(c); }); })(r.cloneContents());
+      return k;
+    }
+    function selOffsets(pre) { const r = window.getSelection().getRangeAt(0); return [preOffset(pre, r.startContainer, r.startOffset), preOffset(pre, r.endContainer, r.endOffset)]; }
+    function selectIn(pre, a, z) {
+      const m = codeMap(pre), p = m.at(a), q = m.at(z), r = document.createRange();
+      r.setStart(p.node, p.offset); r.setEnd(q.node, q.offset);
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    }
+    function codeTab(pre, outdent) {
+      const t = codeMap(pre).text, o = selOffsets(pre), a = o[0], z = o[1];
+      if (!outdent && a === z) { document.execCommand('insertText', false, '    '); return; }
+      // 有選取（或 Shift+Tab）：選到的每一行整行加／減四個空白
+      const ls = t.lastIndexOf('\n', a - 1) + 1;
+      const z2 = (z > a && t.charAt(z - 1) === '\n') ? z - 1 : z;   // 只選到下一行的開頭，那一行不算
+      let le = t.indexOf('\n', z2); if (le < 0) le = t.length;
+      const lines = t.slice(ls, le).split('\n'), starts = [], deltas = [];
+      let pos = ls;
+      const out = lines.map(function (ln) {
+        starts.push(pos); pos += ln.length + 1;
+        let nl = ln;
+        if (!outdent) nl = ln.length ? '    ' + ln : ln;   // 空行不加，跟 VS Code 一樣
+        else { const k = /^(\t| {1,4})/.exec(ln); if (k) nl = ln.slice(k[0].length); }
+        deltas.push(nl.length - ln.length);
+        return nl;
+      });
+      if (deltas.every(function (d) { return !d; })) return;
+      const mapOff = function (p) {
+        let q = p;
+        for (let i = 0; i < lines.length; i++) {
+          const s0 = starts[i], d = deltas[i];
+          if (d > 0) { if (s0 < p) q += d; }
+          else if (d < 0) { if (p >= s0 - d) q += d; else if (p > s0) q -= p - s0; }
+        }
+        return q;
+      };
+      selectIn(pre, ls, le);
+      document.execCommand('insertText', false, out.join('\n'));
+      selectIn(pre, mapOff(a), mapOff(z));
+      saveRange(); refresh();
+    }
+    function codeEnter(pre) {
+      const t = codeMap(pre).text, a = selOffsets(pre)[0];
+      const ls = t.lastIndexOf('\n', a - 1) + 1;
+      document.execCommand('insertText', false, '\n' + /^[ \t]*/.exec(t.slice(ls, a))[0]);
+    }
+    function codeBackspace(pre) {
+      const t = codeMap(pre).text, o = selOffsets(pre), a = o[0];
+      if (a !== o[1]) return false;
+      const ls = t.lastIndexOf('\n', a - 1) + 1, col = a - ls;
+      if (col < 2 || !/^ +$/.test(t.slice(ls, a))) return false;
+      const k = ((col - 1) % 4) + 1;   // 退回上一個四格的位置
+      if (k < 2) return false;
+      selectIn(pre, a - k, a);
+      document.execCommand('delete');
+      return true;
     }
     // 字級：execCommand 只認 1–7，先打 7 再把 <font size="7"> 換成 span style（Google 文件的字級單位是 pt）
     const FONT_SIZE_PT = { 1: 8, 2: 10, 3: 12, 4: 14, 5: 18, 6: 24, 7: 36 };
@@ -803,6 +1175,7 @@
     document.addEventListener('mouseup', onColUp);
 
     function refresh() {
+      placeCodeBar();
       if (!toolbar) return;
       const cur = blocksInSelection()[0];
       const dist = !!(cur && cur.style.textAlignLast === 'justify');
@@ -964,7 +1337,16 @@
     function onSel() { if (!closed && document.activeElement === paper) { saveRange(); refresh(); } }
     paper.addEventListener('keydown', function (e) {
       if (ro) return;
-      if (e.key === 'Tab') { e.preventDefault(); exec(e.shiftKey ? 'outdent' : 'indent'); return; }
+      if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault(); e.stopPropagation();
+        const cp = selPre();
+        if (cp) { codeTab(cp, e.shiftKey); return; }
+        exec(e.shiftKey ? 'outdent' : 'indent'); return;
+      }
+      if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !e.isComposing) {
+        const cp = selPre();
+        if (cp && codeBackspace(cp)) { e.preventDefault(); e.stopPropagation(); return; }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); saveRange(); linkPop(toolbar.querySelector('[data-act="link"]')); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); flush(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') { e.preventDefault(); saveRange(); openFind(); return; }
@@ -975,15 +1357,15 @@
       if (e.key === 'Enter' && !e.isComposing) {
         const blk = blocksInSelection()[0];
         if (blk && blk.tagName === 'PRE') {
-          // 程式碼區塊：Enter 是換行，Shift+Enter／Ctrl+Enter 離開區塊往下接一段
-          e.preventDefault();
+          // 程式碼區塊：Enter 是換行（新的一行照這一行的縮排），Shift+Enter／Ctrl+Enter 離開區塊往下接一段
+          e.preventDefault(); e.stopPropagation();
           if (e.shiftKey || e.ctrlKey || e.metaKey) {
             const np = document.createElement('p'); np.innerHTML = '<br>'; blk.parentNode.insertBefore(np, blk.nextSibling);
             const r = document.createRange(); r.setStart(np, 0); r.collapse(true); const sl = window.getSelection(); sl.removeAllRanges(); sl.addRange(r);
             saveRange(); changed(); refresh(); return;
           }
-          document.execCommand('insertLineBreak');
-          changed(); return;
+          if (selPre() === blk) codeEnter(blk); else document.execCommand('insertLineBreak');
+          return;
         }
         if (e.ctrlKey || e.metaKey) { e.preventDefault(); insertPageBreak(); return; }
       }
@@ -996,6 +1378,8 @@
       if (ro) return;
       const dt = e.clipboardData;
       if (!dt) return;
+      // 貼進程式碼區塊一律是純文字（不帶網頁或 IDE 的格式）
+      if (selPre()) { e.preventDefault(); document.execCommand('insertText', false, (dt.getData('text/plain') || '').replace(/\r\n?/g, '\n')); return; }
       const files = Array.prototype.filter.call(dt.files || [], function (f) { return (f.type || '').indexOf('image/') === 0; });
       if (files.length) { e.preventDefault(); insertFiles(files); return; }
       const html = dt.getData('text/html');
@@ -1382,19 +1766,26 @@
       document.removeEventListener('mouseup', onColUp);
       if (rulerListeners) rulerListeners();
       clearTimeout(tocTimer); closeFind();
+      clearTimeout(barTimer);
+      if (codeRO) codeRO.disconnect();
+      if (HL) TOKEN_GROUPS.forEach(function (g) { if (CSS.highlights.get('gd-t-' + g) === hlSets[g]) CSS.highlights.delete('gd-t-' + g); });
+      codeState.clear();
       document.removeEventListener('mousedown', onDocDown, true);
       host.innerHTML = ''; host.classList.remove('gd-page');
     }
     function close() { if (closed) return; emit(); closed = true; teardown(); if (opts.onClose) opts.onClose(); }
     function discard() { if (closed) return; closed = true; dirty = false; teardown(); }
-    function setContent(html) { paper.innerHTML = toLive(html) || '<p><br></p>'; ensureToc(); drawHF(); dirty = false; setStatus('已儲存', 'is-ok'); count(); }
+    function setContent(html) { paper.innerHTML = toLive(html) || '<p><br></p>'; ensureToc(); drawHF(); dirty = false; setStatus('已儲存', 'is-ok'); count(); syncCode(true); }
 
     applyMargins(); drawHF();
+    syncCode(true);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (!closed) syncCode(true); });
     count(); refresh();
     if (content) setStatus('已儲存', 'is-ok');
     setTimeout(function () { if (!closed && !ro) paper.focus(); }, 30);
     return { close: close, requestClose: close, discard: discard, flush: flush, setContent: setContent, exportPDF: exportPDF, exportDocx: exportDocx, setPage: setPage, getPage: function () { return Object.assign({}, page); } };
   }
 
-  global.Doc = { isNote: isNote, generate: generate, open: open, sanitize: sanitize, textOf: textOf, toStored: toStored, toLive: toLive, buildPrintHTML: buildPrintHTML, docxFromPaper: docxFromPaper, cleanPage: cleanPage, PAGE_SIZES: PAGE_SIZES };
+  global.Doc = { isNote: isNote, generate: generate, open: open, sanitize: sanitize, textOf: textOf, toStored: toStored, toLive: toLive, buildPrintHTML: buildPrintHTML, docxFromPaper: docxFromPaper, cleanPage: cleanPage, PAGE_SIZES: PAGE_SIZES,
+    staticCode: staticCode, staticCodeHTML: staticCodeHTML, codePrintCSS: codePrintCSS, codeSegments: codeSegments, CODE_LANGS: CODE_LANGS };
 })(window);

@@ -477,7 +477,8 @@
       '.pdf-content .kbs-board.is-empty { background: #f6f8fa; color: #626f86; justify-content: center; font-size: 9pt; }',
       /* 文件（js/doc.js）的分頁符號、目錄、程式碼區塊，筆記裡若貼了這些 HTML 也照樣印 */
       '.pdf-content .gd-pagebreak { break-after: page; height: 0; margin: 0; border: 0; visibility: hidden; }',
-      '.pdf-content pre.gd-code { font-family: "Courier New", Consolas, monospace; font-size: 9pt; background: #f1f3f4; border: 1px solid #dadce0; padding: 2mm 3mm; white-space: pre-wrap; }',
+      '.pdf-content pre.gd-code { position: relative; font-family: "Courier New", Consolas, monospace; font-size: 9pt; line-height: 1.45; tab-size: 4; background: #f1f3f4; border: 1px solid #dadce0; padding: 2mm 3mm; white-space: pre-wrap; }',
+      (global.Doc && Doc.codePrintCSS) ? Doc.codePrintCSS('.pdf-content') : '',   // 行號欄與上色（doc.js 的 staticCode 產生的 .gd-cl／.gd-t-*）
       /* 行事曆（```timetree，js/timetree.js 的 blockHTML）：月曆格線加行程清單 */
       '.pdf-content .tts { border: 1px solid #d0d7de; border-radius: 2mm; margin: 0 0 5mm; break-inside: avoid; font-size: 8.5pt; }',
       '.pdf-content .tts-head { display: flex; align-items: center; gap: 2mm; padding: 2mm 3mm; border-bottom: 1px solid #d0d7de; } .pdf-content .tts-head i { width: 3mm; height: 3mm; border-radius: 50%; display: inline-block; } .pdf-content .tts-head span { color: #57606a; font-size: 7.5pt; }',

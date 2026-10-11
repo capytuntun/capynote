@@ -884,15 +884,26 @@
     });
   }
 
+  // 文件（js/doc.js）的內容是一整段 HTML，marked 把它當成一個 HTML 區塊原樣放行——但 HTML 區塊在空行就結束，
+  // 程式碼區塊裡只要有空行，後半段就被當成 Markdown（* 變斜體、<pre> 裡長出 <p>）。區塊裡的換行改寫成 &#10;：
+  // 對 HTML 是同一個字，對 marked 就沒有空行了。只動 gd-code 的 <pre>，而且內容要是 HTML 開頭（文件一定是）。
+  function protectDocCode(md) {
+    if (md.indexOf('gd-code') < 0 || !/^\s*</.test(md)) return md;
+    return md.replace(/(<pre\b[^>]*\bgd-code\b[^>]*>)([\s\S]*?)(<\/pre>)/g, function (m, a, body, z) { return a + body.replace(/\r?\n/g, '&#10;') + z; });
+  }
+
   // ---- Public render -----------------------------------------------------
   function render(md) {
     for (const k in usedSlugs) delete usedSlugs[k]; // reset per render
     findingSeq = 0;
     taskSeq = 0;
     headingList = [];
-    let raw = marked.parse(md || '');
+    let raw = marked.parse(protectDocCode(md || ''));
     // Every [toc] gets the same full list, built now that all headings are known.
     if (raw.indexOf(TOC_PLACEHOLDER) >= 0) raw = raw.split(TOC_PLACEHOLDER).join(buildInlineTOC());
+    // 文件（js/doc.js，內容是 HTML）的程式碼區塊：上色與行號在這裡變成靜態的 span（電子書、公開連結、版本都走這條）。
+    // 在 DOMPurify 之前做，清理還是最後一關。
+    if (raw.indexOf('gd-code') >= 0 && global.Doc && Doc.staticCodeHTML) raw = Doc.staticCodeHTML(raw);
     return DOMPurify.sanitize(raw, {
       ADD_ATTR: ['id', 'data-img-id', 'data-note-id', 'data-note-title', 'data-annotate',
         'data-frame', 'aria-pressed',   // 圖片黑框的切換鈕
