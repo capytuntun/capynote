@@ -341,7 +341,12 @@
     getLinkPreview: function (url) {
       if (!linkPreviewCache[url]) {
         linkPreviewCache[url] = req('GET', '/api/link-preview?url=' + encodeURIComponent(url))
-          .catch(function (e) { delete linkPreviewCache[url]; return { error: e && e.message || 'error' }; });
+          .then(function (info) {
+            // 失敗的答案不留在這一頁的快取裡：使用者按「抓預覽」重試才會真的再問一次伺服器
+            // （伺服器那邊自己有 10 分鐘的失敗快取）
+            if (info && info.error) delete linkPreviewCache[url];
+            return info;
+          }, function (e) { delete linkPreviewCache[url]; return { error: e && e.message || 'error' }; });
       }
       return linkPreviewCache[url];
     },

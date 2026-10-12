@@ -2023,8 +2023,9 @@
         });
       },
       // 預覽走既有的 /api/link-preview（伺服器那邊有 SSRF 防護），縮圖透過它的代理（CSP 只准同源圖片）
+      // 失敗時把原因（{ error }）一起交回去，對話框才說得出是對方擋、逾時還是網址不對
       onPreview: function (url) {
-        return Store.getLinkPreview(url).then(function (info) { return info && !info.error ? info : null; }, function () { return null; });
+        return Store.getLinkPreview(url).then(function (info) { return info || { error: '無法取得這個網頁' }; }, function (e) { return { error: e && e.message || '無法取得這個網頁' }; });
       },
       proxy: function (u) { return '/api/link-preview/image?url=' + encodeURIComponent(u); }
     };

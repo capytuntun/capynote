@@ -33,6 +33,18 @@ const MAX_HTML_BYTES = 1024 * 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_REDIRECTS = 4;
 const UA = 'Mozilla/5.0 (compatible; CapyNote-LinkPreview/1.0)';
+// 第二次嘗試用的一般瀏覽器 UA（見 preview()）：對方對不認識的 bot 回 403／429／503 時才用
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+// 失敗原因變成一句給人看的話（前端直接顯示）
+function failReason(e) {
+  if (!e) return '無法取得這個網頁';
+  if (e.code === 'EBLOCKED') return '這個網址不能預覽';
+  if (e.name === 'AbortError' || e.name === 'TimeoutError' || e.code === 'ABORT_ERR') return '對方網站太慢，逾時（' + Math.round(DEADLINE_MS / 1000) + ' 秒）';
+  if (e.code === 'EPREVIEW') return e.message;
+  if (e.code === 'ENOTFOUND') return '找不到這個網域';
+  if (e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT') return '連不上對方網站（' + e.code + '）';
+  return '無法取得這個網頁';
+}
 const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon)$/;
 
 // ---------------- address guard ----------------
@@ -129,7 +141,7 @@ function fetchLimited(target, o, signal, hops) {
       lookup: safeLookup,
       signal: signal,
       headers: {
-        'User-Agent': UA,
+        'User-Agent': o.ua || UA,
         'Accept': o.accept,
         'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br'
@@ -291,18 +303,28 @@ async function preview(raw) {
   const hit = cached(key);
   if (hit) return hit;
   let value;
+  const opts = {
+    accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
+    maxBytes: MAX_HTML_BYTES,
+    truncate: true,
+    checkType: function (t) { return !t || /html|xml/i.test(t); }
+  };
   try {
-    const r = await fetchLimited(target, {
-      accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
-      maxBytes: MAX_HTML_BYTES,
-      truncate: true,
-      checkType: function (t) { return !t || /html|xml/i.test(t); }
-    }, AbortSignal.timeout(DEADLINE_MS), 0);
+    let r;
+    try {
+      r = await fetchLimited(target, opts, AbortSignal.timeout(DEADLINE_MS), 0);
+    } catch (e) {
+      // 很多影片站／Cloudflare 擋的站對「不認識的 bot」直接回 403／429／503：用一般瀏覽器的
+      // UA 再試一次。平常仍先用自報家門的 UA，對方網站才知道是誰在抓。
+      if (!(e && /回應 (403|429|503)$/.test(e.message))) throw e;
+      r = await fetchLimited(target, Object.assign({}, opts, { ua: BROWSER_UA }), AbortSignal.timeout(DEADLINE_MS), 0);
+    }
     const info = extract(decodeHtml(r.body, r.headers['content-type']), r.url);
     value = Object.assign({ url: key, finalUrl: r.url.toString() }, info);
     remember(key, value, OK_TTL);
   } catch (e) {
-    value = { error: e && e.code === 'EBLOCKED' ? '這個網址不能預覽' : '無法取得這個網頁' };
+    // 把原因留下來（對方回應 403、逾時、內容不是網頁…），前端的「抓不到預覽」才說得出為什麼。
+    value = { error: failReason(e) };
     remember(key, value, FAIL_TTL);
   }
   return value;
