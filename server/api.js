@@ -794,7 +794,7 @@ function kindOfMeta(raw) {
   let m = null;
   try { m = raw ? JSON.parse(raw) : null; } catch (e) { m = null; }
   if (!m) return '';
-  return m.relMap ? 'relmap' : m.drawio ? 'drawio' : m.board ? 'board' : m.startpage ? 'start' : m.xmind ? 'xmind' : m.timetree ? 'timetree' : m.progress ? 'progress' : m.doc ? 'doc' : m.secReport ? 'sec' : m.perfReport ? 'perf' : m.file ? 'file' : m.sticky ? 'sticky' : '';
+  return m.relMap ? 'relmap' : m.drawio ? 'drawio' : m.board ? 'board' : m.startpage ? 'start' : m.xmind ? 'xmind' : m.timetree ? 'timetree' : m.progress ? 'progress' : m.doc ? 'doc' : m.video ? 'video' : m.secReport ? 'sec' : m.perfReport ? 'perf' : m.file ? 'file' : m.sticky ? 'sticky' : '';
 }
 async function listTrash(user) {
   const rows = await q.trashOf.all(user.id);

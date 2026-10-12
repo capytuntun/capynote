@@ -77,6 +77,7 @@
     if (note.meta && note.meta.timetree) return 'calendar';
     if (note.meta && note.meta.progress) return 'list-checks';
     if (note.meta && note.meta.doc) return 'file-pen';
+    if (note.meta && note.meta.video) return 'film';
     if (note.area === 'quick') return 'pin';
     if (note.meta && note.meta.perfReport) return 'chart';
     if (note.meta && note.meta.secReport) return 'shield';
@@ -133,6 +134,8 @@
       } else if (areaFromHash() && areaFromHash().area !== 'novel') {
         // #course、#course/<資料夾>（知識區同理）：重新整理停在原本那一層
         openArea(areaFromHash().area, { folderId: areaFromHash().folderId, keepHash: true });
+      } else if (location.hash === '#videos') {
+        openVideos({ keepHash: true });   // 個人區的影片頁：openVideos 自己會先問密碼
       } else if (location.hash === '#quick') {
         openQuick();
       } else if (location.hash === '#board') {
@@ -198,7 +201,7 @@
     const a = area === undefined ? treeArea : (area || null);
     return state.notes
       // 便條紙不是文件，只活在它的資料夾頁面上；上傳的檔案是資料夾的內容，照樣列出來
-      .filter(function (n) { return (n.area || null) === a && isMine(n) && !isStickyNote(n) && (n.folderId || null) === folderId; })
+      .filter(function (n) { return (n.area || null) === a && isMine(n) && !isStickyNote(n) && !isVideoNote(n) && (n.folderId || null) === folderId; })
       .sort(function (a1, b1) { return Sorting.compareNotes(a1, b1, mode); });
   }
   // 換區域時清掉批次選取：選到的東西已經不在畫面上了，留著只會讓「刪除／移動」動到看不見的項目
@@ -683,7 +686,11 @@
     if (trashWrapEl && !trashWrapEl.hidden && window.Trash) Trash.render(trashPageEl, trashOpts());
     if (courseWrapEl && !courseWrapEl.hidden && window.AreaBrowser) AreaBrowser.refresh(areaOpts('course'));
     if (knowledgeWrapEl && !knowledgeWrapEl.hidden && window.AreaBrowser) AreaBrowser.refresh(areaOpts('knowledge'));
-    if (novelWrapEl && !novelWrapEl.hidden && window.AreaBrowser) AreaBrowser.refresh(areaOpts('novel'));
+    if (novelWrapEl && !novelWrapEl.hidden) {
+      // 個人區：正在看影片分頁就重畫影片頁，不然是小說的瀏覽器
+      if (videosPageEl && !videosPageEl.hidden) { if (window.Videos) Videos.refresh(videosOpts()); }
+      else if (window.AreaBrowser) AreaBrowser.refresh(areaOpts('novel'));
+    }
     if (quickWrapEl && !quickWrapEl.hidden && window.QuickNotes) QuickNotes.refresh(quickOpts());
     if (boardsWrapEl && !boardsWrapEl.hidden && window.Board) Board.renderIndex(boardsPageEl, boardsOpts());
     if (xmindWrapEl && !xmindWrapEl.hidden && window.XMind) XMind.renderIndex(xmindPageEl, xmindOpts());
@@ -738,6 +745,9 @@
   function isFileNote(n) { return !!(n && n.meta && n.meta.file && n.meta.file.id); }
   // 便條紙（meta.sticky）一樣不進編輯器：它住在課程筆記的資料夾頁面上，直接在卡片上打字。
   function isStickyNote(n) { return !!(n && n.meta && n.meta.sticky); }
+  // 影片（meta.video，個人區）：沒有編輯器，住在個人區的「影片」頁（js/videos.js），點了是對話框。
+  // 小說的瀏覽器與側邊欄的樹都不列它——它只在影片頁出現。
+  function isVideoNote(n) { return !!(n && n.meta && n.meta.video); }
   function stickyTitle(text) {
     const line = String(text || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0] || '';
     return line.slice(0, 60) || '便條紙';
@@ -872,7 +882,8 @@
     return {
       area: area,
       title: info.title, icon: info.icon,
-      notes: areaNotes(area), folders: areaFolders(area),
+      // 影片（meta.video）住在個人區自己的影片頁，不混進小說的資料夾清單
+      notes: areaNotes(area).filter(function (n) { return !isVideoNote(n); }), folders: areaFolders(area),
       onOpen: openNote,
       onTag: function (tag) { browseTag(tag); },
       // 電子書區住在知識區（從首頁搬過來）：列出所有 is_book 的資料夾，不限區域；磚的章數用全站算
@@ -1037,6 +1048,8 @@
       if (info.wrap) info.wrap.hidden = true;
       setNavActive(a + '-open-btn', false);
     });
+    // 影片頁（個人區的分頁）：把對話框收掉、還沒送出的存檔送出
+    if (window.Videos && videosPageEl && !videosPageEl.hidden) Videos.teardown();
     if (quickWrapEl) quickWrapEl.hidden = true;
     setNavActive('quick-open-btn', false);
     if (boardsWrapEl) boardsWrapEl.hidden = true;
@@ -1913,6 +1926,13 @@
     closeAreaViews();
     info.wrap.hidden = false;
     info.wrap.scrollTop = 0;
+    if (area === 'novel') {
+      // 個人區：切到「小說」分頁（影片頁藏起來，見 openVideos）
+      if (window.Videos && videosPageEl && !videosPageEl.hidden) Videos.teardown();
+      if (videosPageEl) videosPageEl.hidden = true;
+      novelPageEl.hidden = false;
+      paTab('novel');
+    }
     setNavActive(area + '-open-btn', true);
     autoOpenSidebar();
     const h = areaHash(area, o.folderId);
@@ -1936,6 +1956,80 @@
     setTreeArea('quick');
   }
 
+  // ---- 個人區 → 影片（js/videos.js）----
+  // 跟小說共用同一個 #novel-wrap、同一道密碼（promptNovelPassword）與同一個 area:'novel'
+  // （伺服器的 permFor/novelUnlocked 只認 area，所以影片跟小說一樣：解鎖前連列表都不會送到
+  // 瀏覽器、不能分享、不進首頁、不進外面的關聯圖）。wrap 最上面一排 .pa-tabs 切換
+  // 小說／影片；路由 #videos；一部影片的 #note/<id> 也落在這一頁、對話框疊上去。
+  function paTab(which) {
+    if (!paTabsEl) return;
+    paTabsEl.querySelectorAll('[data-pa]').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-pa') === which); });
+  }
+  function openVideos(o) {
+    o = o || {};
+    if (!novelWrapEl || !videosPageEl || !window.Videos) return;
+    if (!novelIsUnlocked) {
+      promptNovelPassword().then(function (ok) { if (ok) openVideos(o); else showEmpty(); });
+      return;
+    }
+    leaveOtherViews();
+    closeAreaViews();
+    novelWrapEl.hidden = false;
+    novelWrapEl.scrollTop = 0;
+    novelPageEl.hidden = true;
+    videosPageEl.hidden = false;
+    paTab('videos');
+    setNavActive('novel-open-btn', true);
+    autoOpenSidebar();
+    if (o.replaceHash) replaceHash('videos');
+    else if (!o.keepHash) setHash('videos');
+    Videos.render(videosPageEl, videosOpts());
+    if (window.Dashboard && Dashboard.freshen) Dashboard.freshen(videosPageEl);
+    setTreeArea('novel');
+    if (o.open) Videos.open(o.open);
+  }
+  // 一部影片一次只有一個存檔在路上，其餘併成一次補送（跟 startSave 同一套）
+  const videoSavers = {};
+  function videoSave(n) {
+    const s = videoSavers[n.id] || (videoSavers[n.id] = { saving: false, again: false });
+    const run = function () {
+      s.saving = true;
+      const cur = state.notes.find(function (x) { return x.id === n.id; }) || n;
+      Store.updateNote({ id: cur.id, title: cur.title, content: cur.content, folderId: cur.folderId, meta: cur.meta })
+        .then(function (r) { cur.rev = r.rev; cur.updatedAt = r.updatedAt; if (window.Videos) Videos.saved(cur); }, function (e) { toast('儲存失敗：' + (e && e.message || e)); })
+        .then(function () { s.saving = false; if (s.again) { s.again = false; run(); } });
+    };
+    if (s.saving) s.again = true; else run();
+  }
+  function videosOpts() {
+    return {
+      notes: state.notes.filter(function (n) { return n.area === 'novel' && isMine(n) && isVideoNote(n); }),
+      onCreate: function (d) {
+        return Store.createNote(d.title, null, { area: 'novel', content: d.content, meta: { video: true } }).then(function (n) {
+          state.notes.push(n);
+          refreshViews();
+          return n;
+        }, function (e) { toast('建立失敗：' + (e && e.message || e)); throw e; });
+      },
+      onSave: videoSave,
+      onDelete: function (n) {
+        showConfirm({ title: '移到垃圾桶', message: '把影片「' + n.title + '」移到垃圾桶？可以從垃圾桶還原。', ok: '移到垃圾桶', danger: true }).then(function (yes) {
+          if (!yes) return;
+          Store.deleteNote(n.id).then(function () {
+            state.notes = state.notes.filter(function (x) { return x.id !== n.id; });
+            refreshViews();
+            toast('已移到垃圾桶');
+          }, function (e) { toast('刪除失敗：' + (e && e.message || e)); });
+        });
+      },
+      // 預覽走既有的 /api/link-preview（伺服器那邊有 SSRF 防護），縮圖透過它的代理（CSP 只准同源圖片）
+      onPreview: function (url) {
+        return Store.getLinkPreview(url).then(function (info) { return info && !info.error ? info : null; }, function () { return null; });
+      },
+      proxy: function (u) { return '/api/link-preview/image?url=' + encodeURIComponent(u); }
+    };
+  }
+
   // 小說的第二層密碼：彈窗重新輸入目前帳號的密碼，通過才把 novelIsUnlocked 打開、
   // 重抓一次筆記／資料夾列表（這時伺服器才會把 area:'novel' 的項目也一起送回來）。
   // 這個彈窗只存在這一頁的生命週期——重新整理一律要再輸入一次，見 novelIsUnlocked
@@ -1947,7 +2041,7 @@
       overlay.innerHTML =
         '<div class="modal" role="dialog" aria-modal="true">' +
         '<div class="modal-title">' + (Icons ? Icons.svg('lock') : '') + '<span>再次確認密碼</span></div>' +
-        '<div class="modal-body">小說區需要再輸入一次目前帳號的密碼才能進入。</div>' +
+        '<div class="modal-body">個人區（小說、影片）需要再輸入一次目前帳號的密碼才能進入。</div>' +
         '<input class="modal-input" type="password" autocomplete="current-password">' +
         '<div class="modal-error" hidden></div>' +
         '<div class="modal-actions">' +
@@ -2189,6 +2283,10 @@
   const knowledgeWrapEl = $('#knowledge-wrap'), knowledgePageEl = $('#knowledge-page');
   const quickWrapEl = $('#quick-wrap'), quickPageEl = $('#quick-page');
   const novelWrapEl = $('#novel-wrap'), novelPageEl = $('#novel-page');
+  // 個人區（#novel-wrap）上面一排分頁：小說（AreaBrowser 畫在 #novel-page）／影片（js/videos.js
+  // 畫在 #videos-page）。兩個共用同一道密碼與同一個 area:'novel'，見 openVideos。
+  const videosPageEl = $('#videos-page');
+  const paTabsEl = novelWrapEl ? novelWrapEl.querySelector('.pa-tabs') : null;
   // 只存在瀏覽器這一頁的生命週期裡，重新整理就重置——小說每次重新載入頁面都要
   // 再輸入一次密碼，即使伺服器那邊的解鎖狀態還沒過期（見 CLAUDE.md 的小說區段落）。
   let novelIsUnlocked = false;
@@ -2590,6 +2688,8 @@
     const known = state.notes.find(function (n) { return n.id === id; });
     if (isFileNote(known)) { openFileViewer(known); return; }
     if (isStickyNote(known) && goToSticky(known)) return;
+    // 影片（個人區）：到影片頁、把那一部的對話框打開。從 #note/<影片> 的連結進來就改寫那一筆紀錄
+    if (isVideoNote(known)) { saveNow(); openVideos({ open: id, replaceHash: noteIdFromHash() === id }); return; }
     // 隨筆沒有整頁編輯器：到它那一頁、用 Keep 式的對話框打開（新分頁的 #note/<隨筆>、搜尋結果都走這裡）
     if (known && known.area === 'quick' && window.QuickNotes && QuickNotes.open) {
       if (!quickWrapEl || quickWrapEl.hidden) { saveNow(); openQuick(); }
@@ -2712,7 +2812,7 @@
       showEmpty();
       if (wasNovel) {
         novelIsUnlocked = false;
-        toast('小說區的解鎖已過期，請再輸入一次密碼');
+        toast('個人區的解鎖已過期，請再輸入一次密碼');
       }
     });
   }
@@ -5857,11 +5957,17 @@
         return;
       }
       // #course、#course/<資料夾>（知識區、小說同理）：只切畫面，不再 pushState
+      // #videos：個人區的影片分頁（跟 #novel 同一個 wrap，所以看的是影片頁本身藏不藏）
+      if (location.hash === '#videos') {
+        if (!videosPageEl || videosPageEl.hidden || novelWrapEl.hidden) openVideos({ keepHash: true });
+        return;
+      }
       const am = location.hash.match(AREA_HASH);
       if (am) {
         const ar = areaFromHash();
         const fid = am[1] === 'novel' && !novelIsUnlocked ? (am[2] ? decodeURIComponent(am[2]) : null) : ar.folderId;
-        if (AREA_INFO[am[1]].wrap.hidden) openArea(am[1], { folderId: fid, keepHash: true });
+        const onVideos = am[1] === 'novel' && videosPageEl && !videosPageEl.hidden;   // 從影片分頁退回小說分頁
+        if (AREA_INFO[am[1]].wrap.hidden || onVideos) openArea(am[1], { folderId: fid, keepHash: true });
         else if (window.AreaBrowser && AreaBrowser.currentFolder() !== fid) AreaBrowser.openFolder(fid);
         return;
       }
@@ -5925,6 +6031,12 @@
     const courseBtn = $('#course-open-btn'); if (courseBtn) courseBtn.addEventListener('click', function () { openArea('course'); });
     const knowledgeBtn = $('#knowledge-open-btn'); if (knowledgeBtn) knowledgeBtn.addEventListener('click', function () { openArea('knowledge'); });
     const novelBtn = $('#novel-open-btn'); if (novelBtn) novelBtn.addEventListener('click', function () { openArea('novel'); });
+    // 個人區上面的分頁：小說／影片
+    if (paTabsEl) paTabsEl.addEventListener('click', function (e) {
+      const b = e.target.closest('[data-pa]');
+      if (!b) return;
+      if (b.getAttribute('data-pa') === 'videos') openVideos(); else openArea('novel');
+    });
     const quickBtn = $('#quick-open-btn'); if (quickBtn) quickBtn.addEventListener('click', openQuick);
     const boardBtn = $('#board-open-btn'); if (boardBtn) boardBtn.addEventListener('click', openBoards);
     const startBtn = $('#start-open-btn'); if (startBtn) startBtn.addEventListener('click', function () { openStart(); });
@@ -6185,7 +6297,8 @@
       if ((el = t.closest('.book-tree-link[data-note-id]'))) return '#note/' + el.getAttribute('data-note-id');
       if (t.closest('a[href]')) return null;
       if (t.closest('.trash-row')) return null;   // 垃圾桶裡的筆記開不了（#note/<id> 會 404）
-      if ((el = t.closest('.dash-note-wrap[data-id], #tree .note-row[data-id], .search-row[data-id], .qn-card[data-id], .boards-tile[data-id], .xmi-tile[data-id]'))) return '#note/' + el.dataset.id;
+      if ((el = t.closest('.dash-note-wrap[data-id], #tree .note-row[data-id], .search-row[data-id], .qn-card[data-id], .boards-tile[data-id], .xmi-tile[data-id], .vd-card[data-id], .vd-stats [data-id]'))) return '#note/' + el.dataset.id;
+      if ((el = t.closest('.pa-tab[data-pa]'))) return el.getAttribute('data-pa') === 'videos' ? '#videos' : '#novel';
       if ((el = t.closest('.sp-tab[data-page]'))) return '#note/' + el.getAttribute('data-page');
       if ((el = t.closest('.tt-cal[data-cal]'))) return '#note/' + el.getAttribute('data-cal');
       if ((el = t.closest('.pg-course[data-course]'))) return '#note/' + el.getAttribute('data-course');

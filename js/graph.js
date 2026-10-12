@@ -23,6 +23,7 @@
     return e;
   }
   function normTitle(t) { return String(t || '').trim().toLowerCase(); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
   // 節點／連線的顏色、彎曲方向都是「看資料算出來的固定值」，不是隨機——同一張圖
@@ -38,7 +39,10 @@
   // 紫／青的重點線——調色盤裡橘棕多放幾份，雜湊出來的分布才會是「一片暖色底、
   // 零星幾條彩色」，不是每種顏色平均分配的彩虹。
   const EDGE_COLORS = ['#c9822a', '#c9822a', '#c9822a', '#b8702a', '#a86a2c', '#4f8fd6', '#d65f6b', '#8e6fd6', '#4fb0a8'];
-  function nodeColor(n) { return n.kind === 'tag' ? null : NODE_COLORS[hash(n.id) % NODE_COLORS.length]; }
+  // 標籤與「演員」（影片關聯圖，js/videos.js）這類節點顏色固定（CSS 的 .graph-node-<kind>），
+  // 其餘（筆記、影片）每顆用 id 雜湊出自己的顏色。
+  const FIXED_KINDS = { tag: true, actor: true };
+  function nodeColor(n) { return FIXED_KINDS[n.kind] ? null : NODE_COLORS[hash(n.id) % NODE_COLORS.length]; }
   function edgeColor(e) { return EDGE_COLORS[hash(e.a + '|' + e.b) % EDGE_COLORS.length]; }
 
   // 二次貝茲曲線：控制點從邊的中點沿垂直方向偏移，偏移量隨線長縮放、方向照雜湊
@@ -108,7 +112,10 @@
 
   function open(notes, opts) {
     opts = opts || {};
-    const data = buildGraph(notes || []);
+    // opts.data：呼叫端自己算好的 { nodes: [{id, kind, label, note?, deg}], edges: [{a, b, kind}] }
+    // （影片關聯圖 js/videos.js 用：節點是影片／演員／hashtag，不是筆記）；沒給就從筆記內文建圖。
+    const data = opts.data || buildGraph(notes || []);
+    const legend = opts.legend || [['is-note', '筆記'], ['is-tag', '標籤']];
 
     // 畫進呼叫端給的容器（整頁），不是自己往 body 塞一層疊層。close() 只負責拆掉
     // 自己的東西（動畫、事件、DOM 內容），容器本身歸 app.js 管；「返回」與 Esc 走
@@ -121,14 +128,14 @@
     host.innerHTML =
       '<div class="graph-editor">' +
       '<header class="graph-bar">' +
-      '<span class="graph-bar-t">關聯圖</span>' +
-      '<span class="graph-bar-hint">拖曳調整位置・滾輪縮放・點一下看關聯・雙擊開啟筆記或篩選標籤</span>' +
+      '<span class="graph-bar-t">' + esc(opts.title || '關聯圖') + '</span>' +
+      '<span class="graph-bar-hint">' + esc(opts.hint || '拖曳調整位置・滾輪縮放・點一下看關聯・雙擊開啟筆記或篩選標籤') + '</span>' +
       '<label class="graph-tag-toggle"><input type="checkbox" class="graph-tags-cb" checked> 顯示標籤</label>' +
       '<label class="graph-tag-toggle"><input type="checkbox" class="graph-labels-cb"' + (showLabels ? ' checked' : '') + '> 顯示名稱</label>' +
       '<span class="graph-bar-sp"></span>' +
       // 圖例跟著節點走：節點是小圓點了，圖例就用同樣的小圓點，不再放圖示
-      '<span class="graph-legend"><i class="graph-legend-dot is-note"></i>筆記<i class="graph-legend-dot is-tag"></i>標籤</span>' +
-      '<button class="btn graph-close" type="button">返回</button>' +
+      '<span class="graph-legend">' + legend.map(function (l) { return '<i class="graph-legend-dot ' + l[0] + '"></i>' + esc(l[1]); }).join('') + '</span>' +
+      '<button class="btn graph-close" type="button">' + esc(opts.closeLabel || '返回') + '</button>' +
       '</header>' +
       '<div class="graph-canvas" tabindex="0">' +
       '<div class="graph-zoom-ctrl">' +
@@ -153,7 +160,7 @@
     function back() { if (opts.onClose) opts.onClose(); }
 
     if (!data.nodes.length) {
-      canvas.innerHTML = '<div class="graph-empty">還沒有任何筆記可以畫成關聯圖。</div>';
+      canvas.innerHTML = '<div class="graph-empty">' + esc(opts.emptyText || '還沒有任何筆記可以畫成關聯圖。') + '</div>';
       const onKeyEmpty = function (e) { if (e.key === 'Escape') back(); };
       document.addEventListener('keydown', onKeyEmpty);
       closeBtn.addEventListener('click', back);
@@ -410,7 +417,9 @@
       g.addEventListener('dblclick', function (e) {
         e.preventDefault();
         if (dragMoved) return;
-        if (n.kind === 'note' && opts.onOpenNote) { close(); opts.onOpenNote(n.note); }
+        // onOpenNode：呼叫端自己決定每種節點雙擊要做什麼（影片關聯圖）；沒給就是筆記／標籤的老規矩
+        if (opts.onOpenNode) { close(); opts.onOpenNode(n); }
+        else if (n.kind === 'note' && opts.onOpenNote) { close(); opts.onOpenNote(n.note); }
         else if (n.kind === 'tag' && opts.onOpenTag) { close(); opts.onOpenTag(n.label.replace(/^#/, '')); }
       });
     }

@@ -34,6 +34,7 @@
     timetree: { icon: 'calendar', cls: 'kind-timetree' },
     progress: { icon: 'list-checks', cls: 'kind-progress' },
     doc: { icon: 'file-pen', cls: 'kind-doc' },
+    video: { icon: 'film', cls: 'kind-video' },
     sec: { icon: 'shield', cls: 'kind-sec' },
     perf: { icon: 'chart', cls: 'kind-perf' },
     file: { icon: 'paperclip', cls: '' },

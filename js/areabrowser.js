@@ -580,6 +580,7 @@
     if (n.meta && n.meta.timetree) return { icon: 'calendar', label: 'timetree', cls: 'kind-timetree' };
     if (n.meta && n.meta.progress) return { icon: 'list-checks', label: '課程進度', cls: 'kind-progress' };
     if (n.meta && n.meta.doc) return { icon: 'file-pen', label: '文件', cls: 'kind-doc' };
+    if (n.meta && n.meta.video) return { icon: 'film', label: '影片', cls: 'kind-video' };
     return { icon: 'file-text', label: '', cls: '' };
   }
   function isPinned(n) { return !!(n.meta && n.meta.pinned); }

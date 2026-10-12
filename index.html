@@ -170,7 +170,8 @@
         <button id="xmind-open-btn" class="sidebar-nav-item" type="button" title="像 XMind 一樣的心智圖" data-icon="mind-map">xmind</button>
         <button id="timetree-open-btn" class="sidebar-nav-item" type="button" title="像 TimeTree 一樣的行事曆" data-icon="calendar">timetree</button>
         <button id="progress-open-btn" class="sidebar-nav-item" type="button" title="課程進度：輸入課程與章節，完成一章勾一章，進度與預計完成日會同步到課程筆記與 timetree" data-icon="list-checks">課程進度</button>
-        <button id="novel-open-btn" class="sidebar-nav-item" type="button" title="需要再輸入一次密碼才能進入" data-icon="lock">小說</button>
+        <!-- 個人區：小說＋影片（js/videos.js），需要再輸入一次密碼；id 沿用 novel，伺服器的 area 也還是 'novel' -->
+        <button id="novel-open-btn" class="sidebar-nav-item" type="button" title="個人區（小說、影片），需要再輸入一次密碼才能進入" data-icon="lock">個人</button>
       </nav>
       <div class="search-row">
         <div class="search-box">
@@ -337,8 +338,15 @@
       <div id="knowledge-wrap" class="trash-wrap area-wrap" hidden>
         <div id="knowledge-page" class="dashboard trash-page"></div>
       </div>
+      <!-- 個人區（#novel／#videos）：上面一排分頁切換 小說（AreaBrowser）／影片（js/videos.js），
+           兩個都在同一道密碼後面（app.js openArea('novel') / openVideos） -->
       <div id="novel-wrap" class="trash-wrap area-wrap" hidden>
+        <nav class="pa-tabs" aria-label="個人區">
+          <button class="pa-tab is-active" type="button" data-pa="novel" data-icon="book">小說</button>
+          <button class="pa-tab" type="button" data-pa="videos" data-icon="film">影片</button>
+        </nav>
         <div id="novel-page" class="dashboard trash-page"></div>
+        <div id="videos-page" class="vd-page" hidden></div>
       </div>
       <div id="quick-wrap" class="trash-wrap area-wrap" hidden>
         <div id="quick-page" class="quick-page"></div>
@@ -397,14 +405,14 @@
   <script src="js/mindmap.js?v=3"></script>
   <script src="js/relmap.js?v=8"></script>
   <script src="js/drawio.js?v=8"></script>
-  <script src="js/graph.js?v=12"></script>
+  <script src="js/graph.js?v=13"></script>
   <script src="js/store.js?v=63"></script>
   <script src="js/auth.js?v=50"></script>
   <script src="js/migrate.js?v=41"></script>
   <script src="js/admin.js?v=51"></script>
   <script src="js/backup.js?v=2"></script>
   <script src="js/search.js?v=41"></script>
-  <script src="js/markdown.js?v=74"></script>
+  <script src="js/markdown.js?v=75"></script>
   <script src="js/editor.js?v=55"></script>
   <script src="js/multicursor.js?v=3"></script>
   <script src="js/templates.js?v=1"></script>
@@ -415,8 +423,9 @@
   <script src="js/seceditor.js?v=43"></script>
   <script src="js/perfreport.js?v=43"></script>
   <script src="js/sorting.js?v=1"></script>
-  <script src="js/dashboard.js?v=83"></script>
-  <script src="js/areabrowser.js?v=29"></script>
+  <script src="js/dashboard.js?v=84"></script>
+  <script src="js/videos.js?v=1"></script>
+  <script src="js/areabrowser.js?v=30"></script>
   <script src="js/quicknotes.js?v=15"></script>
   <script src="js/board.js?v=4"></script>
   <script src="js/startpage.js?v=3"></script>
@@ -429,10 +438,10 @@
   <script src="js/pdf.js?v=66"></script>
   <script src="js/book.js?v=13"></script>
   <script src="js/versions.js?v=7"></script>
-  <script src="js/trash.js?v=9"></script>
+  <script src="js/trash.js?v=10"></script>
   <script src="js/imagelib.js?v=8"></script>
   <script src="js/linesync.js?v=9"></script>
   <script src="js/embedswitch.js?v=2"></script>
-  <script src="js/app.js?v=150"></script>
+  <script src="js/app.js?v=151"></script>
 </body>
 </html>
