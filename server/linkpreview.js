@@ -156,7 +156,13 @@ function fetchLimited(target, o, signal, hops) {
         if (!next) return reject(blockedError());
         return resolve(fetchLimited(next, o, signal, hops + 1));
       }
-      if (status < 200 || status >= 300) { res.resume(); return reject(fail('對方網站回應 ' + status)); }
+      if (status < 200 || status >= 300) {
+        res.resume();
+        // Cloudflare 的人機驗證（cf-mitigated: challenge）：換 UA、改 TLS 參數都過不了（2026-10-13 對
+        // jable.tv 試過），只有真的瀏覽器能看——明說，讓使用者知道是對方擋、不是網址錯。
+        const cf = String(res.headers['cf-mitigated'] || '') === 'challenge';
+        return reject(fail('對方網站回應 ' + status + (cf ? '（Cloudflare 人機驗證擋住伺服器抓取，只有瀏覽器能看）' : '')));
+      }
       if (o.checkType && !o.checkType(String(res.headers['content-type'] || ''))) {
         res.resume();
         return reject(fail('不支援的內容類型'));
@@ -316,7 +322,7 @@ async function preview(raw) {
     } catch (e) {
       // 很多影片站／Cloudflare 擋的站對「不認識的 bot」直接回 403／429／503：用一般瀏覽器的
       // UA 再試一次。平常仍先用自報家門的 UA，對方網站才知道是誰在抓。
-      if (!(e && /回應 (403|429|503)$/.test(e.message))) throw e;
+      if (!(e && /回應 (403|429|503)/.test(e.message))) throw e;
       r = await fetchLimited(target, Object.assign({}, opts, { ua: BROWSER_UA }), AbortSignal.timeout(DEADLINE_MS), 0);
     }
     const info = extract(decodeHtml(r.body, r.headers['content-type']), r.url);

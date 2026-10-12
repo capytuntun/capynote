@@ -99,6 +99,19 @@
   function thumbOf(m) { return (m.preview && m.preview.image) || ytThumb(m.url) || ''; }
   function proxied(u) { return O && O.proxy ? O.proxy(u) : '/api/link-preview/image?url=' + encodeURIComponent(u); }
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
+  // 網址最後一段長得像番號（jable.tv/videos/nsps-994/、…/NSPS-994-uncensored）就取出來當番號：
+  // 很多影片站用 Cloudflare 人機驗證擋伺服器端抓取，預覽抓不到時至少番號與標題不用自己打。
+  // 要整段都是番號（可帶 -xxx 後綴）才算，隨機的 slug（YouTube id 之類）不會誤判。
+  function codeFromUrl(u) {
+    try {
+      const segs = new URL(u).pathname.split('/').filter(Boolean);
+      for (let i = segs.length - 1; i >= 0 && i >= segs.length - 2; i--) {
+        const m = /^([a-z]{2,6})-?(\d{2,5})(?:[-_][a-z0-9-]*)?$/i.exec(decodeURIComponent(segs[i]));
+        if (m) return m[1].toUpperCase() + '-' + m[2];
+      }
+    } catch (e) { /* not a URL */ }
+    return '';
+  }
 
   // ---------------- 狀態 ----------------
   let O = null, host = null;
@@ -163,17 +176,18 @@
     const list = notes();
     const total = list.reduce(function (s, n) { return s + modelOf(n).watches.length; }, 0);
     host.innerHTML = '';
+    // 頁首跟區域頁的 .dash-head 同一個骨架：左邊標題＋數量，右邊 清單／關聯圖／統計 的分段按鈕＋新增
     const head = el('div', 'vd-head');
     head.innerHTML =
       '<div class="vd-head-main"><div class="boards-title">' + ic('film') + '<span>影片</span></div>' +
-      '<div class="boards-sub">' + list.length + ' 部影片・共看過 ' + total + ' 次。貼上連結就會自動抓預覽；看過一次就按一次 +1。</div></div>' +
-      '<div class="vd-head-right"><button class="btn btn-primary vd-add" type="button">' + ic('plus') + '<span>新增影片</span></button></div>';
+      '<div class="boards-sub">' + (list.length ? list.length + ' 部影片・共看過 ' + total + ' 次' : '還沒有影片') + '</div></div>' +
+      '<div class="vd-head-right"><nav class="vd-tabs" aria-label="影片檢視">' +
+      [['list', 'list', '清單'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
+        return '<button class="vd-tab' + (view === t[0] ? ' is-active' : '') + '" type="button" data-view="' + t[0] + '" aria-pressed="' + (view === t[0]) + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
+      }).join('') + '</nav>' +
+      '<button class="btn btn-primary vd-add" type="button">' + ic('plus') + '<span>新增影片</span></button></div>';
     host.appendChild(head);
-    const tabs = el('nav', 'vd-tabs');
-    tabs.innerHTML = [['list', 'list', '清單'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
-      return '<button class="vd-tab' + (view === t[0] ? ' is-active' : '') + '" type="button" data-view="' + t[0] + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
-    }).join('');
-    host.appendChild(tabs);
+    const tabs = head.querySelector('.vd-tabs');
     const body = el('div', 'vd-body');
     host.appendChild(body);
     if (view === 'graph') paintGraph(body);
@@ -228,14 +242,16 @@
       [['added', '最近新增'], ['watched', '最近看過'], ['count', '看最多次'], ['title', '標題']].map(function (s) { return '<option value="' + s[0] + '"' + (sort === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') +
       '</select>' +
       fl.map(function (f) { return '<button class="vd-filter" type="button" data-clear="' + f[0] + '">' + esc(f[1]) + ic('x') + '</button>'; }).join('');
-    body.appendChild(tools);
+    if (notes().length) body.appendChild(tools);   // 一部影片都還沒有：搜尋與排序沒東西可搜，只留空狀態
     const grid = el('div', 'vd-grid');
     const rows = sorted(notes().filter(matches));
     if (!rows.length) {
-      grid.appendChild(el('div', 'vd-empty', notes().length ? '沒有符合的影片。' : ic('film') + '<p>還沒有影片。按「新增影片」貼上一個連結開始吧。</p>'));
+      grid.appendChild(el('div', 'vd-empty', notes().length ? '沒有符合的影片。' : ic('film') + '<p>還沒有影片。貼上一個連結就會自動抓標題與縮圖。</p><button class="btn btn-primary vd-empty-add" type="button">' + ic('plus') + '<span>新增影片</span></button>'));
     }
     rows.forEach(function (r) { grid.appendChild(makeCard(r.n, r.m)); });
     body.appendChild(grid);
+    const emptyAdd = grid.querySelector('.vd-empty-add');
+    if (emptyAdd) emptyAdd.addEventListener('click', function () { openModal(null); });
 
     const input = tools.querySelector('input');
     input.addEventListener('input', function () { query = input.value; repaintGrid(grid); });
@@ -475,7 +491,13 @@
         if (pv && !pv.image) pv.image = ytThumb(u);
         const t = q('.vd-m-title');
         if (pv && pv.title && !t.value.trim()) t.value = pv.title;
-        apply({ url: u, preview: pv && (pv.title || pv.image || pv.description) ? pv : null });
+        // 番號從網址補：欄位還空著就填；標題也還空著（預覽抓不到）就先用番號當標題
+        const code = codeFromUrl(u);
+        const codeIn = q('.vd-m-code');
+        const fill = {};
+        if (code && !codeIn.value.trim()) { codeIn.value = code; fill.code = code; }
+        if (code && !t.value.trim()) t.value = code;
+        apply(Object.assign({ url: u, preview: pv && (pv.title || pv.image || pv.description) ? pv : null }, fill));
         // 失敗原因來自伺服器（對方回應 403、逾時、連結預覽已停用…），顯示在預覽那一格與狀態列
         modal.pvError = failed ? ((info && info.error) || '無法取得這個網頁') : (pv && !(pv.title || pv.image || pv.description) ? '這個網頁沒有標題或縮圖可以抓' : '');
         if (modal.pvError) status('抓不到預覽：' + modal.pvError);

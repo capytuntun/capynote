@@ -6153,30 +6153,31 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 /* ===== 個人區：小說／影片分頁（index.html #novel-wrap .pa-tabs）與影片頁（js/videos.js） =====
    影片頁跟 trello／xmind 的列表頁同一套版面（.boards-page 的留白、側邊欄抽屜開著時往右讓），
    卡片用 8px 圓角，跟 .xmi-tile 一致。顏色全部走既有 token，統計的長條是單一色相（重音色）。 */
-.pa-tabs { display: flex; gap: 2px; padding: 14px 32px 0; transition: padding-left .2s cubic-bezier(.2, .7, .2, 1); }
-#app.sidebar-open .pa-tabs { padding-left: calc(var(--sidebar-w) + 32px); }
-.pa-tab {
-  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: 1px solid transparent; border-bottom: 0;
-  border-radius: 8px 8px 0 0; background: transparent; color: var(--text-dim); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+/* 小說／影片的切換是一顆跟「方格／清單」(.dash-viewtoggle) 同款的分段按鈕，放在頁面內容
+   的留白裡，不畫整排的分頁線、不換底色——整個 #novel-wrap 跟其他區域頁一樣是一片 --bg-2。 */
+.pa-bar { display: flex; align-items: center; padding: 24px 32px 0; transition: padding-left .2s cubic-bezier(.2, .7, .2, 1); }
+#app.sidebar-open .pa-bar { padding-left: calc(var(--sidebar-w) + 32px); }
+.pa-tabs, .vd-tabs { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--border-strong); background: var(--bg); }
+.pa-tab, .vd-tab {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border: 0; background: transparent;
+  color: var(--text-dim); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; white-space: nowrap;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
 }
-.pa-tab .ic-svg { width: 15px; height: 15px; }
-.pa-tab:hover { color: var(--text); background: var(--row-hover); }
-.pa-tab.is-active { color: var(--accent); background: var(--bg); border-color: var(--border); }
-#novel-wrap .trash-page, #novel-wrap .vd-page { border-top: 1px solid var(--border); background: var(--bg); }
-.vd-page { padding: 20px 32px 40vh; transition: padding-left .2s cubic-bezier(.2, .7, .2, 1); min-height: 60vh; }
+.pa-tab + .pa-tab, .vd-tab + .vd-tab { border-left: 1px solid var(--border-strong); }
+.pa-tab .ic-svg, .vd-tab .ic-svg { width: 15px; height: 15px; }
+.pa-tab:hover, .vd-tab:hover { background: var(--row-hover); color: var(--text); }
+.pa-tab.is-active, .vd-tab.is-active { background: var(--accent-weak); color: var(--accent); }
+.pa-tab:focus-visible, .vd-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 分段按鈕已經佔了上面那一段留白，底下的頁面不必再空 28px */
+#novel-wrap .dashboard, #novel-wrap .vd-page { padding-top: 16px; }
+.vd-page { padding: 16px 32px 96px; transition: padding-left .2s cubic-bezier(.2, .7, .2, 1); }
 #app.sidebar-open .vd-page { padding-left: calc(var(--sidebar-w) + 32px); }
-.vd-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
-.vd-head-main { flex: 1 1 auto; min-width: 0; }
-.vd-head-right { flex: 0 0 auto; display: flex; gap: 8px; }
+/* 頁首跟首頁／區域頁的 .dash-head 同一個骨架：左邊標題與數量，右邊 清單／關聯圖／統計 + 新增 */
+.vd-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.vd-head-main { min-width: 0; }
+.vd-head-right { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .vd-head-right .btn { flex: 0 0 auto; }
-.vd-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
-.vd-tab {
-  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent;
-  background: transparent; color: var(--text-dim); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
-}
-.vd-tab .ic-svg { width: 15px; height: 15px; }
-.vd-tab:hover { color: var(--text); }
-.vd-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.vd-head-right .btn .ic-svg { width: 15px; height: 15px; }
 .vd-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .vd-search { flex: 1 1 260px; max-width: 420px; margin: 0; }   /* .search-box 本身帶側邊欄用的外距，這裡歸零 */
 .vd-search input { flex: 1; min-width: 0; height: 34px; padding: 0 8px; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); }
@@ -6189,10 +6190,12 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 }
 .vd-filter .ic-svg { width: 13px; height: 13px; }
 .vd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; max-width: 1400px; }
-.vd-empty { grid-column: 1 / -1; padding: 48px 16px; text-align: center; color: var(--text-dim); font-size: var(--fs-sm); }
-.vd-empty .ic-svg { width: 36px; height: 36px; color: var(--text-faint); }
+.vd-empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 56px 16px; border: 2px dashed var(--border-strong); border-radius: 8px; text-align: center; color: var(--text-dim); font-size: var(--fs-sm); }
+.vd-empty > .ic-svg { width: 40px; height: 40px; color: var(--text-faint); }
+.vd-empty p { margin: 0; }
+.vd-empty .btn { flex: 0 0 auto; margin-top: 4px; }
 .vd-card {
-  position: relative; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); color: var(--text);
+  position: relative; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
   overflow: hidden; box-shadow: var(--shadow-sm); cursor: pointer; outline: none;
   transition: transform var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
 }
@@ -6306,11 +6309,11 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 /* 統計分頁：數字磚、每月觀看的直條、各種排行的橫條（單一色相，重音色） */
 .vd-stats { display: flex; flex-direction: column; gap: 18px; max-width: 1400px; }
 .vd-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-.vd-tile { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
+.vd-tile { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
 .vd-tile-l { font-size: var(--fs-xs); font-weight: 600; color: var(--text-dim); }
 .vd-tile-v { font-size: 26px; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; }
 .vd-tile-v small { margin-left: 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-faint); }
-.vd-st-sec { padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); min-width: 0; }
+.vd-st-sec { padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); min-width: 0; }
 .vd-st-sec h3 { margin: 0 0 10px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); }
 .vd-st-none { font-size: var(--fs-xs); color: var(--text-faint); }
 .vd-st-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
