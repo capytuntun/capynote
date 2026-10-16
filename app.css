@@ -6096,7 +6096,7 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 #preview.markdown-body h3 { font-size: 23.5px; }
 #preview.markdown-body h4 { font-size: 22.5px; }
 #preview.markdown-body h5, #preview.markdown-body h6 { font-size: calc(var(--fs-lg) - 3px); }
-#preview .code-block { font-size: calc(var(--fs-md) - 2px); }
+#preview.markdown-body pre { font-size: 14px; } /* 2026-10-16：「Code block 改成 14」；原本設在外層 .code-block，被 .markdown-body pre 自己的 16px 蓋掉，沒生效 */
 #preview .link-card-title, #preview .file-chip-name { font-size: calc(var(--fs-base) - 2px); }
 #preview .link-card-url, #preview .link-card-desc { font-size: calc(var(--fs-xs) - 2px); }
 #preview .file-chip-type { font-size: calc(var(--fs-micro) - 2px); }
