@@ -61,7 +61,7 @@
 
   function isNote(n) { return !!(n && n.meta && n.meta.video); }
   function payloadOf(text) { const m = FENCE.exec(String(text || '')); return m ? m[1] : ''; }
-  function blank() { return { url: '', code: '', actors: [], lang: '', tags: [], watches: [], notes: '', added: today(), preview: null }; }
+  function blank() { return { url: '', code: '', movieTitle: '', actors: [], lang: '', tags: [], watches: [], notes: '', added: today(), preview: null }; }
   function parse(text) {
     let raw = null;
     try { raw = JSON.parse(payloadOf(text) || 'null'); } catch (e) { raw = null; }
@@ -69,6 +69,7 @@
     if (!raw || typeof raw !== 'object') return m;
     m.url = safeUrl(raw.url);
     m.code = str(raw.code, 60).trim();
+    m.movieTitle = str(raw.movieTitle, 300).trim();
     m.actors = cleanList(raw.actors, 30, 60);
     m.lang = str(raw.lang, 30).trim();
     m.tags = cleanList(raw.tags, 40, 40, true);
@@ -429,6 +430,7 @@
       '</div>' +
       '<div class="vd-m-right">' +
       '<label class="vd-f"><span class="vd-f-l">番號</span><input class="tt-input vd-m-code" type="text" value="' + esc(model.code) + '" placeholder="例如 ABC-123" maxlength="60" spellcheck="false"></label>' +
+      '<label class="vd-f"><span class="vd-f-l">片名</span><input class="tt-input vd-m-movietitle" type="text" value="' + esc(model.movieTitle) + '" placeholder="影片完整標題…" maxlength="300" spellcheck="false"></label>' +
       '<div class="vd-f"><span class="vd-f-l">演員</span><div class="vd-chips vd-chips-in vd-m-actors"></div></div>' +
       '<label class="vd-f"><span class="vd-f-l">語言</span><input class="tt-input vd-m-lang" type="text" list="vd-dl-lang" value="' + esc(model.lang) + '" placeholder="日文／中文／英文…" maxlength="30"><datalist id="vd-dl-lang">' + allLangs().map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist></label>' +
       '<div class="vd-f"><span class="vd-f-l">hashtag</span><div class="vd-chips vd-chips-in vd-m-tags"></div></div>' +
@@ -459,6 +461,7 @@
     }
     q('.vd-m-title').addEventListener('input', function () { apply(); });
     q('.vd-m-code').addEventListener('input', function (e) { apply({ code: e.target.value.trim() }); });
+    q('.vd-m-movietitle').addEventListener('input', function (e) { apply({ movieTitle: e.target.value }); });
     q('.vd-m-lang').addEventListener('input', function (e) { apply({ lang: e.target.value.trim() }); });
     q('.vd-m-lang').addEventListener('change', function (e) { apply({ lang: e.target.value.trim() }); });
     q('.vd-m-notes').addEventListener('input', function (e) { apply({ notes: e.target.value }); });

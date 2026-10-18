@@ -2042,7 +2042,7 @@
       overlay.innerHTML =
         '<div class="modal" role="dialog" aria-modal="true">' +
         '<div class="modal-title">' + (Icons ? Icons.svg('lock') : '') + '<span>再次確認密碼</span></div>' +
-        '<div class="modal-body">個人區（小說、影片）需要再輸入一次目前帳號的密碼才能進入。</div>' +
+        '<div class="modal-body">請輸入密碼</div>' +
         '<input class="modal-input" type="password" autocomplete="current-password">' +
         '<div class="modal-error" hidden></div>' +
         '<div class="modal-actions">' +

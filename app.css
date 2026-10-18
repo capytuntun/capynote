@@ -6201,7 +6201,8 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 }
 .vd-card:hover, .vd-card:focus-visible { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(9, 30, 66, .16); border-color: var(--border-strong); }
 .vd-thumb, .vd-player-thumb { position: relative; display: block; aspect-ratio: 16 / 9; background: var(--bg-3); overflow: hidden; }
-.vd-thumb img, .vd-player-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.vd-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.vd-player-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .vd-thumb-ph { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: var(--text-faint); }
 .vd-thumb-ph .ic-svg { width: 34px; height: 34px; }
 .vd-thumb.is-empty .vd-thumb-ph, .vd-player-thumb.is-empty .vd-thumb-ph { display: flex; }
