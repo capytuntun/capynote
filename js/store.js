@@ -341,7 +341,9 @@
     // { error }, and the card just keeps showing the address.
     // 硬刪一部影片後把它的預覽答案從這一頁的快取拿掉（伺服器那邊 api.deleteNote 也會忘掉）
     forgetLinkPreview: function (url) { delete linkPreviewCache[url]; },
-    getLinkPreview: function (url) {
+    // noCache=true（影片庫）：不碰這一頁的快取，伺服器那邊也不讀不寫（?nocache=1，回 no-store）
+    getLinkPreview: function (url, noCache) {
+      if (noCache) return req('GET', '/api/link-preview?url=' + encodeURIComponent(url) + '&nocache=1');
       if (!linkPreviewCache[url]) {
         linkPreviewCache[url] = req('GET', '/api/link-preview?url=' + encodeURIComponent(url))
           .then(function (info) {

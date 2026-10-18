@@ -100,7 +100,7 @@
     return m ? 'https://i.ytimg.com/vi/' + m[1] + '/hqdefault.jpg' : '';
   }
   function thumbOf(m) { return (m.preview && m.preview.image) || ytThumb(m.url) || ''; }
-  function proxied(u) { return O && O.proxy ? O.proxy(u) : '/api/link-preview/image?url=' + encodeURIComponent(u); }
+  function proxied(u) { return O && O.proxy ? O.proxy(u) : '/api/link-preview/image?url=' + encodeURIComponent(u) + '&nocache=1'; }
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
   // 網址最後一段長得像編號（/videos/nsps-994/、…/NSPS-994-uncensored）就取出來當編號：
   // 要整段都是編號（可帶 -xxx 後綴）才算，隨機的 slug（YouTube id 之類）不會誤判。

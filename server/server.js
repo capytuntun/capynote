@@ -683,8 +683,10 @@ async function handleApi(req, res, url) {
   // ordinary answer for a card, which then just shows the address.
   if (p === '/api/link-preview' && method === 'GET') {
     if (!config.linkPreview) return json(res, 200, { error: '連結預覽已停用' });
-    const info = await linkpreview.preview(url.searchParams.get('url'));
-    return json(res, 200, info, info.error ? {} : { 'Cache-Control': 'private, max-age=3600' });
+    // nocache=1（影片庫）：伺服器不讀不寫預覽快取，瀏覽器也不准存
+    const noCache = url.searchParams.get('nocache') === '1';
+    const info = await linkpreview.preview(url.searchParams.get('url'), { noCache: noCache });
+    return json(res, 200, info, noCache ? { 'Cache-Control': 'no-store' } : (info.error ? {} : { 'Cache-Control': 'private, max-age=3600' }));
   }
   if (p === '/api/link-preview/image' && method === 'GET') {
     if (!config.linkPreview) return json(res, 404, { error: 'not found' });
@@ -693,7 +695,7 @@ async function handleApi(req, res, url) {
     res.writeHead(200, {
       'Content-Type': img.type,
       'Content-Length': img.body.length,
-      'Cache-Control': 'private, max-age=86400',
+      'Cache-Control': url.searchParams.get('nocache') === '1' ? 'no-store' : 'private, max-age=86400',
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox"
     });

@@ -383,11 +383,9 @@ const TRAD = {
 };
 function toTrad(s) { return String(s || '').replace(/[㐀-鿿]/g, function (ch) { return TRAD[ch] || ch; }); }
 
-// 人物頁的第一個名字是中文名（有的話），後面逗號分隔的是日文名與別名；一個 id 只抓一次
-const actorCache = new Map();
-const ACTOR_CACHE_MAX = 2000;
+// 人物頁的第一個名字是中文名（有的話），後面逗號分隔的是日文名與別名。每次都抓，不留快取
+// （使用者要求影片這一塊完全不留快取）
 async function actorName(id, fallback) {
-  if (actorCache.has(id)) return actorCache.get(id);
   let name = fallback;
   try {
     const t = parseTarget(LOOKUP_BASE + '/actors/' + id);
@@ -398,11 +396,7 @@ async function actorName(id, fallback) {
       if (first) name = first;
     }
   } catch (_) { /* 人物頁抓不到就用詳細頁上的名字 */ }
-  name = toTrad(name);
-  actorCache.delete(id);
-  actorCache.set(id, name);
-  while (actorCache.size > ACTOR_CACHE_MAX) actorCache.delete(actorCache.keys().next().value);
-  return name;
+  return toTrad(name);
 }
 
 const LOOKUP_OPTS = {
@@ -488,11 +482,14 @@ function remember(key, value, ttl) {
 // Resolves to { url, title, description, siteName, image, icon } or { error }.
 // Errors are answers, not exceptions: an unreachable site is an ordinary outcome
 // for a card, which then just shows the address.
-async function preview(raw) {
+// opts.noCache：影片庫用——不讀也不寫伺服器的預覽快取，什麼都不留在記憶體裡
+async function preview(raw, o) {
+  const noCache = !!(o && o.noCache);
   const target = parseTarget(raw);
   if (!target) return { error: '這個網址不能預覽' };
   const key = target.toString();
-  const hit = cached(key);
+  const keep = function (v, ttl) { if (!noCache) remember(key, v, ttl); };
+  const hit = noCache ? null : cached(key);
   if (hit) return hit;
   let value;
   const code = codeFromUrl(target);
@@ -536,7 +533,7 @@ async function preview(raw) {
       } catch (_) {}
     }
     value = Object.assign({ url: key, finalUrl: r.url.toString() }, info);
-    remember(key, value, OK_TTL);
+    keep(value, OK_TTL);
   } catch (e) {
     // HTML 抓失敗（CF 擋、403…）：有編號就改問 外部資料庫，再不行拿 備用來源 的公開縮圖；
     // 這是「有些會沒有預覽」的解法——影片站本身永遠是擋的，資料得從別處來。
@@ -545,7 +542,7 @@ async function preview(raw) {
       try { jd = await lookupByCode(code); } catch (_) {}
       if (jd && (jd.movieTitle || jd.image)) {
         value = { url: key, title: jd.movieTitle, movieTitle: jd.movieTitle, actors: jd.actors, image: jd.image, code: jd.code };
-        remember(key, value, OK_TTL);
+        keep(value, OK_TTL);
         return value;
       }
       const thumb = fallbackCover(code);
@@ -561,13 +558,13 @@ async function preview(raw) {
           // 沒這個編號時 備用來源 是 302 到 now_printing.jpg 佔位圖，不是 404：跟著轉址後網址變了就當沒有
           if (ir.url.toString() !== thumb) throw fail('備用來源沒有這個編號');
           value = { url: key, image: thumb, actors: [] };
-          remember(key, value, FAIL_TTL);
+          keep(value, FAIL_TTL);
           return value;
         } catch (_) { /* 圖片也抓不到，照舊回 error */ }
       }
     }
     value = { error: failReason(e) };
-    remember(key, value, FAIL_TTL);
+    keep(value, FAIL_TTL);
   }
   return value;
 }
