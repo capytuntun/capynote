@@ -35,6 +35,15 @@ const MAX_REDIRECTS = 4;
 const UA = 'Mozilla/5.0 (compatible; CapyNote-LinkPreview/1.0)';
 // 第二次嘗試用的一般瀏覽器 UA（見 preview()）：對方對不認識的 bot 回 403／429／503 時才用
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+// Sec-Fetch-* 等導覽標頭：讓 Cloudflare Managed Challenge 認為是真的瀏覽器（不能解 IUAM JS 題，但對 basic CF 可能有效）
+const BROWSER_NAV_HEADERS = {
+  'Upgrade-Insecure-Requests': '1',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-User': '?1',
+  'Sec-Fetch-Dest': 'document',
+  'Cache-Control': 'max-age=0'
+};
 // 失敗原因變成一句給人看的話（前端直接顯示）
 function failReason(e) {
   if (!e) return '無法取得這個網頁';
@@ -140,12 +149,12 @@ function fetchLimited(target, o, signal, hops) {
       agent: false,
       lookup: safeLookup,
       signal: signal,
-      headers: {
+      headers: Object.assign({
         'User-Agent': o.ua || UA,
         'Accept': o.accept,
         'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br'
-      }
+      }, o.extraHeaders || {})
     }, function (res) {
       const status = res.statusCode || 0;
       if (status >= 300 && status < 400 && res.headers.location) {
@@ -336,36 +345,81 @@ async function fetchPlyrThumb(vttRel, base, signal) {
   return null;
 }
 
-// Site-specific thumbnail guessers for Cloudflare-blocked sites.
-// Image CDNs are usually not behind CF's JS challenge even when the HTML pages are.
-function guessThumbnail(u) {
-  const host = u.hostname.replace(/^www\./, '');
+// ---------------- 番號 → 片名／演員／封面 ----------------
+// 影片站（jable、missav…）的頁面幾乎都在 Cloudflare 人機驗證後面，伺服器永遠拿不到 HTML；
+// 但網址最後一段通常就是番號，拿番號去 JavDB 查（搜尋頁沒有 CF challenge）就有片名、
+// 演員、封面。拿不到再退到 DMM 的公開封面 CDN。只認「字母 2-8 碼 + 數字 1-5 位」這種番號，
+// 隨機 slug（YouTube id 之類）不會誤判——跟 js/videos.js 的 codeFromUrl 同一條規則。
+function avCode(u) {
   const segs = u.pathname.split('/').filter(Boolean);
-
-  // jable.tv：試從 assets-cdn 取 plyr__preview-scrubbing 的 preview.jpg
-  // CDN 通常不在 CF 的 JS challenge 後面
-  if (host === 'jable.tv') {
-    for (let i = Math.max(0, segs.length - 2); i < segs.length; i++) {
-      let seg;
-      try { seg = decodeURIComponent(segs[i]).toLowerCase(); } catch (_) { seg = segs[i].toLowerCase(); }
-      if (/^[a-z]{2,8}-\d{1,5}/.test(seg)) {
-        return 'https://assets-cdn.jable.tv/contents/videos_screenshots/' + seg + '/preview.jpg';
-      }
-    }
-  }
-
-  // 日系 AV 番號（英文字母 2-8 碼 + 數字 1-5 位）→ DMM 公開封面 CDN，不受 CF 保護
-  // 格式：pics.dmm.co.jp/digital/video/{alpha}{num5}/{alpha}{num5}ps.jpg
-  for (let i = Math.max(0, segs.length - 2); i < segs.length; i++) {
+  for (let i = segs.length - 1; i >= 0 && i >= segs.length - 2; i--) {
     let seg;
     try { seg = decodeURIComponent(segs[i]).toLowerCase(); } catch (_) { seg = segs[i].toLowerCase(); }
-    const m = /^([a-z]{2,8})-?0*(\d{1,5})(?:[-_]|$)/.exec(seg);
-    if (!m) continue;
-    const code = m[1] + m[2].padStart(5, '0');
-    return 'https://pics.dmm.co.jp/digital/video/' + code + '/' + code + 'ps.jpg';
+    const m = /^([a-z]{2,8})-?0*(\d{1,5})(?:[-_][a-z0-9-]*)?$/.exec(seg);
+    if (m) return { letters: m[1], num: Number(m[2]) };
   }
-
   return null;
+}
+// JavDB 的搜尋是模糊的（搜 abc-12 會列 ABC-012、ABC-120…），所以要把兩邊都正規化後比對
+function normCode(s) {
+  const m = /^\s*([a-z]{2,8})-?0*(\d{1,6})\s*$/i.exec(String(s || ''));
+  return m ? m[1].toUpperCase() + '-' + Number(m[2]) : null;
+}
+const JAVDB_OPTS = {
+  ua: BROWSER_UA, extraHeaders: BROWSER_NAV_HEADERS,
+  accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
+  maxBytes: 400 * 1024, truncate: true,
+  checkType: function (t) { return !t || /html/i.test(t); }
+};
+async function lookupJavdb(code) {
+  const want = normCode(code.letters + '-' + code.num);
+  if (!want) return null;
+  const sTarget = parseTarget('https://javdb.com/search?q=' + encodeURIComponent(code.letters + '-' + code.num) + '&f=all');
+  if (!sTarget) return null;
+  const sr = await fetchLimited(sTarget, JAVDB_OPTS, AbortSignal.timeout(6000), 0);
+  const html = sr.body.toString('utf-8');
+  const itemRe = /<div class="item">([\s\S]*?)<\/a>\s*<\/div>/g;
+  let m, hit = null;
+  while ((m = itemRe.exec(html))) {
+    const it = m[1];
+    const strong = (/<strong>([^<]*)<\/strong>/.exec(it) || [])[1];
+    if (normCode(strong) !== want) continue;
+    hit = {
+      code: String(strong).trim(),
+      href: (/<a[^>]*href="(\/v\/[\w-]+)"/.exec(it) || [])[1] || '',
+      movieTitle: decodeEntities((/<a[^>]*\btitle="([^"]*)"/.exec(it) || [])[1] || '').trim(),
+      image: (/<img[^>]*\bsrc="(https:\/\/[\w.-]+\.jdbstatic\.com\/[^"]+)"/.exec(it) || [])[1] || null
+    };
+    break;
+  }
+  if (!hit) return null;
+  const out = { code: hit.code, movieTitle: clip(hit.movieTitle, 300), actors: [], image: hit.image && parseTarget(hit.image) ? hit.image : null };
+  if (!hit.href) return out;
+  // 詳細頁：演員（女優有 class="actor-female"，排前面）
+  try {
+    const dTarget = parseTarget('https://javdb.com' + hit.href);
+    if (!dTarget) return out;
+    const dr = await fetchLimited(dTarget, JAVDB_OPTS, AbortSignal.timeout(6000), 0);
+    const dh = dr.body.toString('utf-8');
+    // </strong> 跟 <span class="value"> 之間夾著 &nbsp;
+    const block = (/<strong>\s*演員:?\s*<\/strong>(?:\s|&nbsp;)*<span class="value">([\s\S]*?)<\/span>/.exec(dh) || [])[1] || '';
+    const aRe = /<a([^>]*)href="\/actors\/[\w-]+"[^>]*>([^<]+)<\/a>/g;
+    const female = [], other = [];
+    let a;
+    while ((a = aRe.exec(block))) {
+      const name = decodeEntities(a[2]).trim();
+      if (!name) continue;
+      (/actor-female/.test(a[1]) ? female : other).push(name);
+    }
+    out.actors = female.concat(other).filter(function (n, i, arr) { return arr.indexOf(n) === i; }).slice(0, 20);
+  } catch (_) { /* 搜尋頁的片名、封面還是有用 */ }
+  return out;
+}
+
+// 日系 AV 番號 → DMM 公開封面 CDN（pl = 大圖），不受 CF 保護；JavDB 也查不到時的最後退路
+function dmmCover(code) {
+  const c = code.letters + String(code.num).padStart(5, '0');
+  return 'https://pics.dmm.co.jp/digital/video/' + c + '/' + c + 'pl.jpg';
 }
 
 // ---------------- cache ----------------
@@ -397,6 +451,7 @@ async function preview(raw) {
   const hit = cached(key);
   if (hit) return hit;
   let value;
+  const code = avCode(target);
   const opts = {
     accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
     maxBytes: MAX_HTML_BYTES,
@@ -411,33 +466,57 @@ async function preview(raw) {
       // 很多影片站／Cloudflare 擋的站對「不認識的 bot」直接回 403／429／503：用一般瀏覽器的
       // UA 再試一次。平常仍先用自報家門的 UA，對方網站才知道是誰在抓。
       if (!(e && /回應 (403|429|503)/.test(e.message))) throw e;
-      r = await fetchLimited(target, Object.assign({}, opts, { ua: BROWSER_UA }), AbortSignal.timeout(DEADLINE_MS), 0);
+      r = await fetchLimited(target, Object.assign({}, opts, { ua: BROWSER_UA, extraHeaders: BROWSER_NAV_HEADERS }), AbortSignal.timeout(DEADLINE_MS), 0);
     }
     const html = decodeHtml(r.body, r.headers['content-type']);
     const info = extract(html, r.url);
-    // 有 Plyr preview-scrubbing 的 VTT → 抓第一張 sprite 當縮圖（og:image 優先）
-    if (!info.image) {
-      const vttRel = extractPlyrVtt(html);
-      if (vttRel) {
-        try { info.image = await fetchPlyrThumb(vttRel, r.url, AbortSignal.timeout(5000)); } catch (_) {}
-      }
+    // 有 Plyr preview-scrubbing 的 VTT → 抓它指到的 preview.jpg 當縮圖，優先於 og:image
+    // （使用者指定要這張；og:image 在這類站常是另一個被 CF 擋的網域）
+    const vttRel = extractPlyrVtt(html);
+    if (vttRel) {
+      try {
+        const vttImg = await fetchPlyrThumb(vttRel, r.url, AbortSignal.timeout(5000));
+        if (vttImg) info.image = vttImg;
+      } catch (_) {}
+    }
+    // 網址帶番號：頁面自己沒給的片名／演員／封面用 JavDB 補
+    if (code) {
+      try {
+        const jd = await lookupJavdb(code);
+        if (jd) {
+          if (!info.movieTitle) info.movieTitle = jd.movieTitle;
+          if (!info.actors.length) info.actors = jd.actors;
+          if (!info.image) info.image = jd.image;
+          info.code = jd.code;
+        }
+      } catch (_) {}
     }
     value = Object.assign({ url: key, finalUrl: r.url.toString() }, info);
     remember(key, value, OK_TTL);
   } catch (e) {
-    // HTML 抓失敗（CF 擋、403…）→ 試從已知圖片 CDN 直接取封面
-    const thumb = guessThumbnail(target);
-    if (thumb) {
+    // HTML 抓失敗（CF 擋、403…）：有番號就改問 JavDB，再不行拿 DMM 的公開封面；
+    // 這是「有些會沒有預覽」的解法——影片站本身永遠是擋的，資料得從別處來。
+    if (code) {
+      let jd = null;
+      try { jd = await lookupJavdb(code); } catch (_) {}
+      if (jd && (jd.movieTitle || jd.image)) {
+        value = { url: key, title: jd.movieTitle, movieTitle: jd.movieTitle, actors: jd.actors, image: jd.image, code: jd.code };
+        remember(key, value, OK_TTL);
+        return value;
+      }
+      const thumb = dmmCover(code);
       const imgTarget = parseTarget(thumb);
       if (imgTarget) {
         try {
-          await fetchLimited(imgTarget, {
+          const ir = await fetchLimited(imgTarget, {
             accept: 'image/avif,image/webp,image/jpeg,image/png,image/*;q=0.8',
             maxBytes: 128,
             truncate: true,
             checkType: function (t) { return IMAGE_TYPES.test(t.split(';')[0].trim().toLowerCase()); }
           }, AbortSignal.timeout(5000), 0);
-          value = { url: key, image: thumb };
+          // 沒這個番號時 DMM 是 302 到 now_printing.jpg 佔位圖，不是 404：跟著轉址後網址變了就當沒有
+          if (ir.url.toString() !== thumb) throw fail('DMM 沒有這個番號的封面');
+          value = { url: key, image: thumb, actors: [] };
           remember(key, value, FAIL_TTL);
           return value;
         } catch (_) { /* 圖片也抓不到，照舊回 error */ }

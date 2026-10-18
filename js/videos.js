@@ -509,14 +509,16 @@
         const t = q('.vd-m-title');
         if (pv && pv.title && !t.value.trim()) t.value = pv.title;
         // 番號從網址補：欄位還空著就填；標題也還空著（預覽抓不到）就先用番號當標題
-        const code = codeFromUrl(u);
+        // 伺服器查到的番號（JavDB 的正規寫法）優先，沒有才從網址切
+        const code = (!failed && str(info.code, 60).trim()) || codeFromUrl(u);
         const codeIn = q('.vd-m-code');
         const fill = {};
         if (code && !codeIn.value.trim()) { codeIn.value = code; fill.code = code; }
         if (code && !t.value.trim()) t.value = code;
-        // 片名從預覽補（欄位還空著才填）
+        // 片名：伺服器從 JavDB 查到的 movieTitle 優先，沒有才用頁面標題（欄位還空著才填）
         const movieTitleIn = q('.vd-m-movietitle');
-        if (!failed && info.title && !movieTitleIn.value.trim()) { movieTitleIn.value = info.title; fill.movieTitle = info.title; }
+        const mt = !failed ? str(info.movieTitle || info.title, 300).trim() : '';
+        if (mt && !movieTitleIn.value.trim()) { movieTitleIn.value = mt; fill.movieTitle = mt; }
         // 演員從 JSON-LD 補（晶片還空著才填）
         if (!failed && info.actors && info.actors.length && !actorsChip.get().length) {
           actorsChip.set(info.actors.slice(0, 10));
