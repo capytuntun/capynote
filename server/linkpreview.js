@@ -293,7 +293,8 @@ function extract(html, base) {
         if (t !== 'videoobject' && t !== 'movie') continue;
         const rawA = item.actor || [];
         [].concat(Array.isArray(rawA) ? rawA : [rawA]).forEach(function (a) {
-          const name = (a && typeof a === 'object') ? String(a.name || '').trim() : String(a || '').trim();
+          // 頁面自己給的名字也過一次字形轉換（日本新字體 → 繁體）
+          const name = toTrad((a && typeof a === 'object') ? String(a.name || '').trim() : String(a || '').trim());
           if (name && actors.indexOf(name) < 0) actors.push(name);
         });
         if (actors.length) break;
@@ -383,20 +384,62 @@ const TRAD = {
 };
 function toTrad(s) { return String(s || '').replace(/[㐀-鿿]/g, function (ch) { return TRAD[ch] || ch; }); }
 
-// 人物頁的第一個名字是中文名（有的話），後面逗號分隔的是日文名與別名。每次都抓，不留快取
-// （使用者要求影片這一塊完全不留快取）
-async function actorName(id, fallback) {
-  let name = fallback;
+// 人物頁：第一個名字是中文名（有的話），後面逗號分隔的是日文名與別名；頁首那顆
+// <span class="avatar" style="background-image: url(…)"> 是大頭照。每次都抓，不留快取
+// （使用者要求影片這一塊完全不留快取）。回 { name, image, aliases }。
+function pickImage(u) { return u && /^https:\/\/[^\s"'<>)]+\.(?:jpe?g|png|webp)(?:\?[^\s"'<>)]*)?$/i.test(u) && parseTarget(u) ? u : null; }
+async function actorInfo(id, fallback) {
+  let name = fallback, image = null, aliases = [];
   try {
     const t = parseTarget(LOOKUP_BASE + '/actors/' + id);
     if (t) {
       const r = await fetchLimited(t, LOOKUP_OPTS, AbortSignal.timeout(6000), 0);
-      const m = /<span class="actor-section-name">([^<]*)<\/span>/.exec(r.body.toString('utf-8'));
-      const first = m ? decodeEntities(m[1]).split(',')[0].trim() : '';
-      if (first) name = first;
+      const h = r.body.toString('utf-8');
+      const m = /<span class="actor-section-name">([^<]*)<\/span>/.exec(h);
+      if (m) {
+        aliases = decodeEntities(m[1]).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        if (aliases[0]) name = aliases[0];
+      }
+      const av = /<span class="avatar"[^>]*background-image:\s*url\(\s*['"]?([^'")\s]+)['"]?\s*\)/i.exec(h);
+      if (av) image = pickImage(decodeEntities(av[1]));
     }
   } catch (_) { /* 人物頁抓不到就用詳細頁上的名字 */ }
-  return toTrad(name);
+  return { id: id, name: toTrad(name), image: image, aliases: aliases.map(toTrad) };
+}
+async function actorName(id, fallback) { return (await actorInfo(id, fallback)).name; }
+
+// 用名字找人：外部資料庫的人物搜尋（f=actor）回一排 actor-box，每個帶 /actors/<id>、title 裡
+// 是所有別名（中文、日文、舊藝名）、一張大頭照、<strong> 裡是主名。別名裡剛好有查的名字那
+// 一個優先，沒有就拿第一個；再進人物頁拿中文名與大頭照。找不到回 { error }。
+async function person(rawName) {
+  const want = toTrad(String(rawName || '').trim()).slice(0, 80);
+  if (!want) return { error: '沒有名字' };
+  const sTarget = parseTarget(LOOKUP_BASE + '/search?q=' + encodeURIComponent(want) + '&f=actor');
+  if (!sTarget) return { error: '查不到' };
+  try {
+    const sr = await fetchLimited(sTarget, LOOKUP_OPTS, AbortSignal.timeout(6000), 0);
+    const html = sr.body.toString('utf-8');
+    const boxRe = /<div class="box actor-box">\s*<a href="\/actors\/([\w-]+)"(?:\s+title="([^"]*)")?[^>]*>([\s\S]*?)<\/a>/g;
+    const boxes = [];
+    let m;
+    while ((m = boxRe.exec(html)) && boxes.length < 20) {
+      const inner = m[3];
+      boxes.push({
+        id: m[1],
+        aliases: decodeEntities(m[2] || '').split(',').map(function (s) { return toTrad(s.trim()); }).filter(Boolean),
+        image: pickImage((/<img[^>]*\bsrc="([^"]+)"/.exec(inner) || [])[1] || ''),
+        name: toTrad(decodeEntities((/<strong>\s*([^<]*?)\s*<\/strong>/.exec(inner) || [])[1] || '').trim())
+      });
+    }
+    if (!boxes.length) return { error: '查不到這個人' };
+    const lw = want.toLowerCase();
+    const hit = boxes.find(function (b) { return b.aliases.concat([b.name]).some(function (a) { return a.toLowerCase() === lw; }); }) || boxes[0];
+    const info = await actorInfo(hit.id, hit.name || want);
+    const aliases = info.aliases.concat(hit.aliases, [hit.name]).filter(function (a, i, arr) { return a && arr.indexOf(a) === i; });
+    return { name: info.name || hit.name, image: info.image || hit.image, aliases: aliases.slice(0, 20), matched: hit.aliases.concat([hit.name]).some(function (a) { return a.toLowerCase() === lw; }) };
+  } catch (e) {
+    return { error: failReason(e) };
+  }
 }
 
 const LOOKUP_OPTS = {
@@ -427,7 +470,7 @@ async function lookupByCode(code) {
     break;
   }
   if (!hit) return null;
-  const out = { code: hit.code, movieTitle: clip(hit.movieTitle, 300), actors: [], image: hit.image && parseTarget(hit.image) ? hit.image : null };
+  const out = { code: hit.code, movieTitle: clip(hit.movieTitle, 300), actors: [], people: [], image: hit.image && parseTarget(hit.image) ? hit.image : null };
   if (!hit.href) return out;
   // 詳細頁：人物是 panel-block 裡指向 /actors/ 的連結（class="actor-female" 的排前面）；
   // 不靠欄位的中文標籤定位，找「含 /actors/ 連結的那個 panel-block」就好
@@ -447,9 +490,15 @@ async function lookupByCode(code) {
       if (!name) continue;
       (/actor-female/.test(a[1]) ? female : other).push({ id: a[2], name: name });
     }
-    // 名字改成繁體中文：平行抓每個人物頁（有快取），拿不到就用詳細頁上的
-    const names = await Promise.all(female.concat(other).slice(0, 20).map(function (p) { return actorName(p.id, p.name); }));
-    out.actors = names.filter(function (n, i, arr) { return n && arr.indexOf(n) === i; });
+    // 名字改成繁體中文、順便拿大頭照：平行抓每個人物頁，拿不到就用詳細頁上的名字
+    const infos = await Promise.all(female.concat(other).slice(0, 20).map(function (p) { return actorInfo(p.id, p.name); }));
+    const seenName = {};
+    infos.forEach(function (p) {
+      if (!p.name || seenName[p.name]) return;
+      seenName[p.name] = true;
+      out.actors.push(p.name);
+      out.people.push({ name: p.name, image: p.image });
+    });
   } catch (_) { /* 搜尋頁的全名、縮圖還是有用 */ }
   return out;
 }
@@ -526,7 +575,8 @@ async function preview(raw, o) {
         const jd = await lookupByCode(code);
         if (jd) {
           if (!info.movieTitle) info.movieTitle = jd.movieTitle;
-          if (!info.actors.length) info.actors = jd.actors;
+          // 資料庫查到的人物優先：名字已是繁體中文、還帶大頭照；頁面自己的 JSON-LD 多半是日文
+          if (jd.actors.length) { info.actors = jd.actors; info.people = jd.people; }
           if (!info.image) info.image = jd.image;
           info.code = jd.code;
         }
@@ -541,7 +591,7 @@ async function preview(raw, o) {
       let jd = null;
       try { jd = await lookupByCode(code); } catch (_) {}
       if (jd && (jd.movieTitle || jd.image)) {
-        value = { url: key, title: jd.movieTitle, movieTitle: jd.movieTitle, actors: jd.actors, image: jd.image, code: jd.code };
+        value = { url: key, title: jd.movieTitle, movieTitle: jd.movieTitle, actors: jd.actors, people: jd.people, image: jd.image, code: jd.code };
         keep(value, OK_TTL);
         return value;
       }
@@ -592,4 +642,4 @@ function forget(raw) {
   if (t) cache.delete(t.toString());
 }
 
-module.exports = { preview, image, forget, parseTarget, isBlockedAddress, extract };
+module.exports = { preview, image, person, forget, parseTarget, isBlockedAddress, extract };

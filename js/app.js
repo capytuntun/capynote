@@ -2030,6 +2030,10 @@
       onPreview: function (url) {
         return Store.getLinkPreview(url, true).then(function (info) { return info || { error: '無法取得這個網頁' }; }, function (e) { return { error: e && e.message || '無法取得這個網頁' }; });
       },
+      // 人物誌／關聯圖的大頭照：用名字問伺服器（它去外部資料庫找），找不到回 { error }
+      onPerson: function (name) {
+        return Store.lookupPerson(name).then(function (info) { return info || { error: '查不到' }; }, function (e) { return { error: e && e.message || '查不到' }; });
+      },
       proxy: function (u) { return '/api/link-preview/image?url=' + encodeURIComponent(u) + '&nocache=1'; }
     };
   }

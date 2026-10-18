@@ -192,6 +192,33 @@
     // 邊是彎的（curvePath），節點顏色跟邊顏色都是雜湊出來的固定值。名稱標不標由
     // 頂欄的「顯示名稱」決定（畫布上的 .hide-labels，純 CSS，不重建 DOM）。
     const edgeEls = {}, nodeEls = {};
+    // 帶照片的節點（影片關聯圖的人物，opts.data 給 n.image）：圓點放大成 IMG_R，上面貼一張
+    // 圓形裁切的 <image>（CSS clip-path: circle），比圓點小 1.5px 讓節點色露出一圈當邊框；
+    // 滑過／選取的光暈還是畫在底下那顆圓的 stroke 上，所以照得到。載入失敗就拿掉照片退回圓點。
+    const IMG_R = 15;
+    function applyImage(rec) {
+      const n = rec.node, g = rec.el;
+      if (rec.img) { rec.img.remove(); rec.img = null; }
+      if (!n.image) return;
+      const r = IMG_R, ir = r - 1.5;
+      rec.dot.setAttribute('r', r);
+      rec.label.setAttribute('y', r + 12);
+      n.r = r;
+      const img = svgEl('image', { class: 'graph-node-img', x: -ir, y: -ir, width: ir * 2, height: ir * 2, href: n.image, preserveAspectRatio: 'xMidYMid slice' });
+      img.addEventListener('error', function () {
+        img.remove(); rec.img = null; n.image = null; g.classList.remove('has-img');
+      });
+      g.insertBefore(img, rec.label);
+      rec.img = img;
+      g.classList.add('has-img');
+    }
+    function setNodeImage(id, url) {
+      const rec = nodeEls[id];
+      if (!rec) return false;
+      rec.node.image = url || null;
+      applyImage(rec);
+      return true;
+    }
     function rebuildDom() {
       edgeLayer.innerHTML = ''; nodeLayer.innerHTML = '';
       Object.keys(edgeEls).forEach(function (k) { delete edgeEls[k]; });
@@ -219,7 +246,8 @@
         g.appendChild(c); g.appendChild(t); g.appendChild(title);
         nodeLayer.appendChild(g);
         n.r = r;
-        nodeEls[n.id] = { el: g, dot: c, node: n };
+        nodeEls[n.id] = { el: g, dot: c, label: t, node: n };
+        if (n.image) applyImage(nodeEls[n.id]);
         bindNodeDrag(g, n);
       });
       // 這裡把 DOM 整個換掉，class 也跟著沒了——選取是釘住的狀態，重建後要再貼回去。
@@ -501,7 +529,7 @@
     }
 
     raf = requestAnimationFrame(tick);
-    return { close: close };
+    return { close: close, setNodeImage: setNodeImage };
   }
 
   global.Graph = { open: open };

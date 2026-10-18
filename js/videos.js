@@ -6,8 +6,15 @@
  * graphNotes()/dashOpts().allNotes 本來就把 novel 整區排除）。標題是筆記的 title，其餘欄位
  * 是內文裡一個 ```video 圍欄的 JSON（跟看板／start.me／timetree 同一套「文字就是真相」）：
  *
- *   { url, code（編號）, actors: [..], lang, tags: [..], watches: ['YYYY-MM-DDTHH:MM', ..],
- *     notes, added: 'YYYY-MM-DD', preview: { title, description, image, site } }
+ *   { url, code（編號）, movieTitle（全名）, actors: [..], avatars: { 人物名: 大頭照網址 }, lang, subtitle,
+ *     tags: [..], watches: ['YYYY-MM-DDTHH:MM', ..], notes, added: 'YYYY-MM-DD',
+ *     preview: { title, description, image, site } }
+ *
+ * 人物的大頭照存在影片裡（avatars，預覽抓回來時伺服器一起給的），人物誌／關聯圖把所有影片的
+ * avatars 合起來看；還沒有照片的人物由 ensureAvatars() 逐一用名字問伺服器（opts.onPerson），
+ * 找到就寫進那個人第一部影片的 avatars 並存檔——所以人物誌是「有出現的人物自動出現」，不用
+ * 另外維護一份名單。查到的名字跟存的不一樣但確定是同一人（伺服器 matched）就整庫改名，這是
+ * 「日文名全部改成繁體中文」的最後一道。
  *
  * 觀看紀錄是手動的：卡片或對話框上按一次「+1 看過」就加一個當下的時間戳，每一筆都能刪。
  * 預覽（標題／縮圖／站名）走既有的 /api/link-preview（opts.onPreview），縮圖透過
@@ -62,7 +69,18 @@
 
   function isNote(n) { return !!(n && n.meta && n.meta.video); }
   function payloadOf(text) { const m = FENCE.exec(String(text || '')); return m ? m[1] : ''; }
-  function blank() { return { url: '', code: '', movieTitle: '', actors: [], lang: '', subtitle: '', tags: [], watches: [], notes: '', added: today(), preview: null }; }
+  function blank() { return { url: '', code: '', movieTitle: '', actors: [], avatars: {}, lang: '', subtitle: '', tags: [], watches: [], notes: '', added: today(), preview: null }; }
+  // avatars：只留「這部影片的人物」的鍵，值要是 http(s) 網址；鍵用人物名原樣（比對時不分大小寫）
+  function cleanAvatars(raw, actors) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    Object.keys(raw).slice(0, 60).forEach(function (k) {
+      const name = actors.find(function (a) { return a.toLowerCase() === String(k).trim().toLowerCase(); });
+      const u = safeUrl(raw[k]);
+      if (name && u && !out[name]) out[name] = u;
+    });
+    return out;
+  }
   function parse(text) {
     let raw = null;
     try { raw = JSON.parse(payloadOf(text) || 'null'); } catch (e) { raw = null; }
@@ -72,6 +90,7 @@
     m.code = str(raw.code, 60).trim();
     m.movieTitle = str(raw.movieTitle, 300).trim();
     m.actors = cleanList(raw.actors, 30, 60);
+    m.avatars = cleanAvatars(raw.avatars, m.actors);
     m.lang = str(raw.lang, 30).trim();
     m.subtitle = str(raw.subtitle, 30).trim();
     m.tags = cleanList(raw.tags, 40, 40, true);
@@ -117,9 +136,10 @@
 
   // ---------------- 狀態 ----------------
   let O = null, host = null;
-  let view = 'list';                   // list | graph | stats
+  let view = 'list';                   // list | people | graph | stats
   let query = '';
-  let filter = { actor: null, tag: null, lang: null };
+  let peopleQuery = '';
+  let filter = { actor: null, tag: null, lang: null, subtitle: null };
   let sort = (function () { try { return localStorage.getItem(LS_SORT) || 'added'; } catch (e) { return 'added'; } })();
   let modal = null;                    // { overlay, note, model, draft }
   let graphView = null;
@@ -145,6 +165,34 @@
   function allActors() { const s = {}; notes().forEach(function (n) { modelOf(n).actors.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
   function allTags() { const s = {}; notes().forEach(function (n) { modelOf(n).tags.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
   function allLangs() { const s = {}; LANGS.forEach(function (l) { s[l] = 1; }); notes().forEach(function (n) { const l = modelOf(n).lang; if (l) s[l] = 1; }); return Object.keys(s); }
+  // 人物名 → 大頭照：翻所有影片的 avatars，第一個有的就是
+  function avatarOf(name) {
+    const k = String(name || '').toLowerCase();
+    const list = notes();
+    for (let i = 0; i < list.length; i++) {
+      const av = modelOf(list[i]).avatars;
+      const hit = Object.keys(av).find(function (a) { return a.toLowerCase() === k; });
+      if (hit) return av[hit];
+    }
+    return '';
+  }
+  // 人物誌的資料：每個出現過的人物一筆（名字以第一次出現的寫法為準），帶影片、觀看次數、照片
+  function peopleIndex() {
+    const map = {};
+    notes().forEach(function (n) {
+      const m = modelOf(n);
+      m.actors.forEach(function (a) {
+        const k = a.toLowerCase();
+        const p = map[k] || (map[k] = { key: k, name: a, videos: [], watches: 0, avatar: '', last: '' });
+        p.videos.push(n);
+        p.watches += m.watches.length;
+        if (!p.avatar && m.avatars[a]) p.avatar = m.avatars[a];
+        const lw = lastWatch(m);
+        if (lw > p.last) p.last = lw;
+      });
+    });
+    return Object.keys(map).map(function (k) { return map[k]; }).sort(function (a, b) { return b.videos.length - a.videos.length || b.watches - a.watches || a.name.localeCompare(b.name, 'zh-Hant'); });
+  }
 
   function scheduleSave(note) {
     if (!O || !O.onSave) return;
@@ -177,6 +225,7 @@
   }
   function teardownView() {
     if (graphView) { graphView.close(); graphView = null; }
+    avatarWatch = null;
     if (host) host.innerHTML = '';
   }
   function teardown() {
@@ -185,11 +234,13 @@
     closeBatch();
     teardownView();
     host = null;
+    avatarMiss = {};   // 「查過沒有」只活在這一次開頁裡
   }
 
   function paint() {
     if (!host) return;
     if (graphView) { graphView.close(); graphView = null; }
+    avatarWatch = null;   // 清單／統計沒有要就地更新的東西；人物誌與關聯圖會再掛自己的
     const list = notes();
     const total = list.reduce(function (s, n) { return s + modelOf(n).watches.length; }, 0);
     host.innerHTML = '';
@@ -199,7 +250,7 @@
       '<div class="vd-head-main"><div class="boards-title">' + ic('film') + '<span>影片</span></div>' +
       '<div class="boards-sub">' + (list.length ? list.length + ' 部影片・共看過 ' + total + ' 次' : '還沒有影片') + '</div></div>' +
       '<div class="vd-head-right"><nav class="vd-tabs" aria-label="影片檢視">' +
-      [['list', 'list', '清單'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
+      [['list', 'list', '清單'], ['people', 'users', '人物誌'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
         return '<button class="vd-tab' + (view === t[0] ? ' is-active' : '') + '" type="button" data-view="' + t[0] + '" aria-pressed="' + (view === t[0]) + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
       }).join('') + '</nav>' +
       '<button class="btn vd-batch" type="button" title="貼一份網址清單，一次新增多部（可以帶全名）">' + ic('list') + '<span>批次新增</span></button>' +
@@ -210,6 +261,7 @@
     host.appendChild(body);
     if (view === 'graph') paintGraph(body);
     else if (view === 'stats') paintStats(body);
+    else if (view === 'people') paintPeople(body);
     else paintList(body);
 
     head.querySelector('.vd-add').addEventListener('click', function () { openModal(null); });
@@ -221,7 +273,7 @@
   }
   function setView(v) { if (v === view) return; view = v; paint(); }
   function setFilter(kind, value) {
-    filter = { actor: null, tag: null, lang: null };
+    filter = { actor: null, tag: null, lang: null, subtitle: null };
     if (kind) filter[kind] = value;
     if (view !== 'list') view = 'list';
     paint();
@@ -232,9 +284,10 @@
     if (filter.actor && !m.actors.some(function (a) { return a.toLowerCase() === filter.actor.toLowerCase(); })) return false;
     if (filter.tag && !m.tags.some(function (a) { return a.toLowerCase() === filter.tag.toLowerCase(); })) return false;
     if (filter.lang && (m.lang || '').toLowerCase() !== filter.lang.toLowerCase()) return false;
+    if (filter.subtitle && (m.subtitle || '').toLowerCase() !== filter.subtitle.toLowerCase()) return false;
     const q = query.trim().toLowerCase();
     if (!q) return true;
-    const hay = [n.title, m.code, m.lang, m.notes, m.url, m.preview && m.preview.title].concat(m.actors, m.tags).join('\n').toLowerCase();
+    const hay = [n.title, m.code, m.movieTitle, m.lang, m.subtitle, m.notes, m.url, m.preview && m.preview.title].concat(m.actors, m.tags).join('\n').toLowerCase();
     return hay.indexOf(q) >= 0;
   }
   function lastWatch(m) { return m.watches.length ? m.watches[m.watches.length - 1] : ''; }
@@ -255,6 +308,7 @@
     if (filter.actor) fl.push(['actor', '人物：' + filter.actor]);
     if (filter.tag) fl.push(['tag', '#' + filter.tag]);
     if (filter.lang) fl.push(['lang', '語言：' + filter.lang]);
+    if (filter.subtitle) fl.push(['subtitle', '字幕：' + filter.subtitle]);
     tools.innerHTML =
       '<div class="search-box vd-search"><input type="search" placeholder="搜尋標題、編號、人物、標籤…" value="' + esc(query) + '" aria-label="搜尋影片"></div>' +
       '<select class="vd-sort" aria-label="排序">' +
@@ -294,11 +348,18 @@
     if (!rows.length) grid.appendChild(el('div', 'vd-empty', '沒有符合的影片。'));
     rows.forEach(function (r) { grid.appendChild(makeCard(r.n, r.m)); });
   }
-  function thumbHTML(m, cls) {
+  function thumbHTML(m, cls, extra) {
     const t = thumbOf(m);
     return '<div class="' + cls + (t ? '' : ' is-empty') + '">' +
       (t ? '<img src="' + esc(proxied(t)) + '" alt="" loading="lazy" onerror="this.parentNode.classList.add(\'is-empty\');this.remove()">' : '') +
-      '<span class="vd-thumb-ph">' + ic('film') + '</span></div>';
+      '<span class="vd-thumb-ph">' + ic('film') + '</span>' + (extra || '') + '</div>';
+  }
+  // 縮圖右下角的標籤：語言、字幕（點一下就依它篩選）
+  function badgesHTML(m) {
+    const b = [];
+    if (m.lang) b.push('<button class="vd-badge is-lang" type="button" data-lang="' + esc(m.lang) + '" title="語言：' + esc(m.lang) + '">' + esc(m.lang) + '</button>');
+    if (m.subtitle) b.push('<button class="vd-badge is-sub" type="button" data-subtitle="' + esc(m.subtitle) + '" title="字幕：' + esc(m.subtitle) + '">' + esc(m.subtitle) + '</button>');
+    return b.length ? '<div class="vd-badges">' + b.join('') + '</div>' : '';
   }
   function makeCard(n, m) {
     const card = el('article', 'vd-card');
@@ -306,7 +367,7 @@
     card.tabIndex = 0;
     const lw = lastWatch(m);
     card.innerHTML =
-      thumbHTML(m, 'vd-thumb') +
+      thumbHTML(m, 'vd-thumb', badgesHTML(m)) +
       (m.code ? '<span class="vd-code">' + esc(m.code) + '</span>' : '') +
       '<span class="vd-count" title="看過 ' + m.watches.length + ' 次">' + ic('eye') + m.watches.length + '</span>' +
       '<div class="vd-cbody">' +
@@ -314,7 +375,6 @@
       (m.actors.length ? '<div class="vd-chips">' + m.actors.map(function (a) { return '<button class="vd-chip is-actor" type="button" data-actor="' + esc(a) + '">' + ic('user') + esc(a) + '</button>'; }).join('') + '</div>' : '') +
       (m.tags.length ? '<div class="vd-chips">' + m.tags.map(function (t) { return '<button class="vd-chip is-tag" type="button" data-tag="' + esc(t) + '">#' + esc(t) + '</button>'; }).join('') + '</div>' : '') +
       '<div class="vd-meta">' +
-      (m.lang ? '<button class="vd-lang" type="button" data-lang="' + esc(m.lang) + '">' + esc(m.lang) + '</button>' : '') +
       '<span>' + (lw ? '最近看：' + fmtDay(lw) : '還沒看過') + '</span>' +
       '<span class="vd-meta-host">' + esc(hostOf(m.url)) + '</span>' +
       '</div></div>' +
@@ -328,6 +388,7 @@
       if ((b = e.target.closest('[data-actor]'))) { setFilter('actor', b.getAttribute('data-actor')); return; }
       if ((b = e.target.closest('[data-tag]'))) { setFilter('tag', b.getAttribute('data-tag')); return; }
       if ((b = e.target.closest('[data-lang]'))) { setFilter('lang', b.getAttribute('data-lang')); return; }
+      if ((b = e.target.closest('[data-subtitle]'))) { setFilter('subtitle', b.getAttribute('data-subtitle')); return; }
       if ((b = e.target.closest('a.vd-open'))) { if (incognitoOn() && openIncognito(b.href)) e.preventDefault(); return; }
       if (e.target.closest('a')) return;
       if ((b = e.target.closest('[data-act]'))) {
@@ -545,10 +606,14 @@
         const movieTitleIn = q('.vd-m-movietitle');
         const mt = !failed ? str(info.movieTitle || info.title, 300).trim() : '';
         if (mt && !movieTitleIn.value.trim()) { movieTitleIn.value = mt; fill.movieTitle = mt; }
-        // 人物從 JSON-LD 補（晶片還空著才填）
+        // 人物從伺服器補（晶片還空著才填）；大頭照不管晶片是誰填的，名字對得上就收
         if (!failed && info.actors && info.actors.length && !actorsChip.get().length) {
           actorsChip.set(info.actors.slice(0, 10));
           fill.actors = actorsChip.get();
+        }
+        if (!failed) {
+          const av = peopleAvatars(info, actorsChip.get());
+          if (Object.keys(av).length) fill.avatars = Object.assign({}, model.avatars, av);
         }
         apply(Object.assign({ url: u, preview: pv && (pv.title || pv.image || pv.description) ? pv : null }, fill));
         // 抓失敗就靜默，編號已從網址自動補齊；不把伺服器錯誤顯示在輸入框附近
@@ -757,6 +822,7 @@
         m.lang = it.lang;
         m.subtitle = it.subtitle;
         m.actors = !noPv && Array.isArray(info.actors) ? cleanList(info.actors, 10, 60) : [];
+        if (!noPv) m.avatars = peopleAvatars(info, m.actors);
         if (!noPv) {
           const pv = { title: str(info.title, 200), description: str(info.description, 300), image: safeUrl(info.image), site: str(info.siteName, 80) };
           if (!pv.image) pv.image = ytThumb(it.url);
@@ -782,6 +848,136 @@
     }
   }
 
+  // ---------------- 人物的大頭照 ----------------
+  // 伺服器預覽回來的 people: [{name, image}] → 這部影片的 avatars（只收名字在人物清單裡的）
+  function peopleAvatars(info, actors) {
+    const out = {};
+    if (!info || !Array.isArray(info.people)) return out;
+    info.people.forEach(function (p) {
+      if (!p || typeof p !== 'object') return;
+      const name = actors.find(function (a) { return a.toLowerCase() === String(p.name || '').trim().toLowerCase(); });
+      const u = safeUrl(p.image);
+      if (name && u && !out[name]) out[name] = u;
+    });
+    return out;
+  }
+  // 還沒有照片的人物，一次一個用名字問伺服器（O.onPerson）。找到就把照片寫進那個人第一部影片
+  // 的 avatars 並存檔；伺服器確定是同一人（matched）且中文名不同就整庫改名。這次開頁查過沒結果
+  // 的記在 avatarMiss，不再重複問（離開頁面就忘，不是快取）。onEach(person, info, renamed) 讓
+  // 人物誌／關聯圖就地更新那一格。
+  let avatarJob = null;
+  let avatarWatch = null;   // 目前畫面要被通知的那個 onEach：每次重畫都換新的，背景工作一直叫最新的
+  let avatarMiss = {};
+  function ensureAvatars(onEach) {
+    avatarWatch = onEach || null;
+    if (!O || !O.onPerson || avatarJob) return;
+    avatarJob = (async function () {
+      try {
+        while (host) {
+          const todo = peopleIndex().filter(function (p) { return !p.avatar && !avatarMiss[p.key]; });
+          if (!todo.length) break;
+          const p = todo[0];
+          let info = null;
+          try { info = await O.onPerson(p.name); } catch (e) { info = null; }
+          if (!host) break;
+          if (!info || info.error) { avatarMiss[p.key] = true; if (avatarWatch) avatarWatch(p, info || { error: '查不到' }, false); continue; }
+          const renamed = applyPerson(p, info);
+          if (!info.image) avatarMiss[renamed ? String(info.name).toLowerCase() : p.key] = true;
+          if (avatarWatch) avatarWatch(p, info, renamed);
+        }
+      } finally { avatarJob = null; }
+    })();
+  }
+  function applyPerson(p, info) {
+    const newName = (info.matched && typeof info.name === 'string' && info.name.trim() && info.name.trim() !== p.name) ? info.name.trim().slice(0, 60) : p.name;
+    const image = safeUrl(info.image);
+    let stored = false;
+    notes().forEach(function (n) {
+      const m = liveModel(n);
+      const idx = m.actors.findIndex(function (a) { return a.toLowerCase() === p.key; });
+      if (idx < 0) return;
+      let changed = false;
+      if (newName !== p.name) {
+        // 改名：已經有這個新名字就把舊的拿掉，否則原地換掉；照片的鍵跟著搬
+        const dup = m.actors.findIndex(function (a, i) { return i !== idx && a.toLowerCase() === newName.toLowerCase(); });
+        if (dup >= 0) m.actors.splice(idx, 1); else m.actors[idx] = newName;
+        Object.keys(m.avatars).forEach(function (k) { if (k.toLowerCase() === p.key) { const u = m.avatars[k]; delete m.avatars[k]; if (!m.avatars[newName]) m.avatars[newName] = u; } });
+        changed = true;
+      }
+      if (image && !stored && m.actors.some(function (a) { return a.toLowerCase() === newName.toLowerCase(); })) {
+        m.avatars[newName] = image; stored = true; changed = true;
+      }
+      if (changed) { write(n, m); if (O.onSave) O.onSave(n); }
+    });
+    if (newName !== p.name) toast('人物「' + p.name + '」改名為「' + newName + '」');
+    return newName !== p.name;
+  }
+
+  // ---------------- 人物誌：有出現過的人物自動列出 ----------------
+  function personCard(p) {
+    const card = el('article', 'vd-person');
+    card.setAttribute('data-key', p.key);
+    card.tabIndex = 0;
+    card.innerHTML =
+      '<div class="vd-person-av' + (p.avatar ? '' : ' is-empty') + '">' +
+      (p.avatar ? '<img src="' + esc(proxied(p.avatar)) + '" alt="" loading="lazy" onerror="this.parentNode.classList.add(\'is-empty\');this.remove()">' : '') +
+      '<span class="vd-person-ph">' + esc(p.name.slice(0, 1)) + '</span></div>' +
+      '<div class="vd-person-name" title="' + esc(p.name) + '">' + esc(p.name) + '</div>' +
+      '<div class="vd-person-meta">' + p.videos.length + ' 部・看過 ' + p.watches + ' 次</div>' +
+      (p.last ? '<div class="vd-person-last">最近看：' + esc(fmtDay(p.last)) + '</div>' : '');
+    card.addEventListener('click', function () { setFilter('actor', p.name); });
+    card.addEventListener('keydown', function (e) { if (e.key === 'Enter') setFilter('actor', p.name); });
+    card.addEventListener('contextmenu', function (e) { e.preventDefault(); personMenu(p, e.clientX, e.clientY); });
+    return card;
+  }
+  function personMenu(p, x, y) {
+    menuAt(x, y, [['videos', '看這個人的影片'], ['photo', '重新找照片']], function (a) {
+      if (a === 'videos') setFilter('actor', p.name);
+      else if (a === 'photo') {
+        delete avatarMiss[p.key];
+        notes().forEach(function (n) {
+          const m = liveModel(n);
+          const k = Object.keys(m.avatars).find(function (a) { return a.toLowerCase() === p.key; });
+          if (k) { delete m.avatars[k]; write(n, m); if (O.onSave) O.onSave(n); }
+        });
+        if (view === 'people') paint();
+      }
+    });
+  }
+  function paintPeople(body) {
+    const people = peopleIndex();
+    const tools = el('div', 'vd-tools');
+    tools.innerHTML =
+      '<div class="search-box vd-search"><input type="search" placeholder="搜尋人物…" value="' + esc(peopleQuery) + '" aria-label="搜尋人物"></div>' +
+      '<span class="vd-people-n">' + people.length + ' 位</span><span class="vd-people-st"></span>';
+    if (people.length) body.appendChild(tools);
+    const grid = el('div', 'vd-people');
+    body.appendChild(grid);
+    const st = tools.querySelector('.vd-people-st');
+    function fill() {
+      grid.innerHTML = '';
+      const q = peopleQuery.trim().toLowerCase();
+      const rows = people.filter(function (p) { return !q || p.name.toLowerCase().indexOf(q) >= 0; });
+      if (!rows.length) grid.appendChild(el('div', 'vd-empty', people.length ? '沒有符合的人物。' : ic('users') + '<p>還沒有人物。影片填了人物就會自動出現在這裡，照片也會自己找。</p>'));
+      rows.forEach(function (p) { grid.appendChild(personCard(p)); });
+      const missing = people.filter(function (p) { return !p.avatar && !avatarMiss[p.key]; }).length;
+      st.textContent = missing ? '正在找 ' + missing + ' 位的照片…' : '';
+    }
+    fill();
+    tools.querySelector('input').addEventListener('input', function (e) { peopleQuery = e.target.value; fill(); });
+    ensureAvatars(function (p, info, renamed) {
+      if (view !== 'people' || !host) return;
+      // 就地換那一張卡；改了名就整個重算（鍵變了）
+      if (renamed) { paint(); return; }
+      const fresh = peopleIndex().find(function (x) { return x.key === p.key; });
+      const old = grid.querySelector('.vd-person[data-key="' + CSS.escape(p.key) + '"]');
+      if (fresh && old && fresh.avatar !== p.avatar) old.replaceWith(personCard(fresh));
+      if (fresh) Object.assign(p, fresh);
+      const missing = peopleIndex().filter(function (x) { return !x.avatar && !avatarMiss[x.key]; }).length;
+      st.textContent = missing ? '正在找 ' + missing + ' 位的照片…' : '';
+    });
+  }
+
   // ---------------- 關聯圖：影片—人物—標籤 ----------------
   function buildGraph(list) {
     const nodes = [], byIdx = {}, edges = [], seen = {};
@@ -791,7 +987,12 @@
       const m = modelOf(n);
       const v = node('v:' + n.id, 'video', n.title || '未命名影片', n);
       v.watches = m.watches.length;
-      m.actors.forEach(function (a) { node('a:' + a.toLowerCase(), 'actor', a); edge(v.id, 'a:' + a.toLowerCase(), 'actor'); });
+      m.actors.forEach(function (a) {
+        const an = node('a:' + a.toLowerCase(), 'actor', a);
+        // 人物節點帶大頭照（graph.js 畫成圓形照片）；照片走同一個代理
+        if (!an.image && m.avatars[a]) an.image = proxied(m.avatars[a]);
+        edge(v.id, 'a:' + a.toLowerCase(), 'actor');
+      });
       m.tags.forEach(function (t) { node('t:' + t.toLowerCase(), 'tag', '#' + t); edge(v.id, 't:' + t.toLowerCase(), 'tag'); });
     });
     return { nodes: nodes, edges: edges };
@@ -816,11 +1017,17 @@
       },
       onClose: function () { setView('list'); }
     });
+    // 還沒有照片的人物在背景找，找到一張就把那顆節點換成照片（不重畫、不重排）
+    ensureAvatars(function (p, info, renamed) {
+      if (view !== 'graph' || !graphView) return;
+      if (renamed) { paint(); return; }
+      if (info.image && graphView.setNodeImage) graphView.setNodeImage('a:' + p.key, proxied(safeUrl(info.image)));
+    });
   }
 
   // ---------------- 統計 ----------------
   function stats(list) {
-    const actors = {}, tags = {}, langs = {}, months = {};
+    const actors = {}, tags = {}, langs = {}, subs = {}, months = {};
     let total = 0;
     const events = [];
     const now = new Date();
@@ -833,6 +1040,8 @@
       m.tags.forEach(function (t) { const k = t.toLowerCase(); tags[k] = tags[k] || { name: t, videos: 0, watches: 0 }; tags[k].videos++; tags[k].watches += m.watches.length; });
       const l = m.lang || '未填';
       langs[l] = langs[l] || { name: l, videos: 0, watches: 0 }; langs[l].videos++; langs[l].watches += m.watches.length;
+      const sb = m.subtitle || '未填';
+      subs[sb] = subs[sb] || { name: sb, videos: 0, watches: 0 }; subs[sb].videos++; subs[sb].watches += m.watches.length;
       m.watches.forEach(function (s) { const k = s.slice(0, 7); if (months[k] !== undefined) months[k]++; events.push({ s: s, n: n }); });
       return { n: n, m: m };
     });
@@ -845,7 +1054,7 @@
       unwatched: rows.filter(function (r) { return !r.m.watches.length; }).length,
       topVideos: rows.filter(function (r) { return r.m.watches.length; }).sort(function (a, b) { return b.m.watches.length - a.m.watches.length; }).slice(0, 10),
       actorsByVideos: sortBy(actors, 'videos').slice(0, 10), actorsByWatches: sortBy(actors, 'watches').filter(function (a) { return a.watches; }).slice(0, 10),
-      tagsByVideos: sortBy(tags, 'videos').slice(0, 10), langs: sortBy(langs, 'videos'),
+      tagsByVideos: sortBy(tags, 'videos').slice(0, 10), langs: sortBy(langs, 'videos'), subtitles: sortBy(subs, 'videos'),
       months: mkeys.map(function (k) { return { key: k, label: String(Number(k.slice(5))) + '月', n: months[k] }; }),
       recent: events.slice(0, 12),
       added: rows.slice().sort(function (a, b) { return (b.n.createdAt || 0) - (a.n.createdAt || 0); }).slice(0, 6)
@@ -881,6 +1090,7 @@
       barList('人物：觀看次數', s.actorsByWatches, function (r) { return r.watches; }, function (r) { return r.name; }, function (r) { return 'data-actor="' + esc(r.name) + '"'; }, '次') +
       barList('hashtag', s.tagsByVideos, function (r) { return r.videos; }, function (r) { return '#' + r.name; }, function (r) { return 'data-tag="' + esc(r.name) + '"'; }, '部') +
       barList('語言', s.langs, function (r) { return r.videos; }, function (r) { return r.name; }, function (r) { return r.name === '未填' ? '' : 'data-lang="' + esc(r.name) + '"'; }, '部') +
+      barList('字幕', s.subtitles, function (r) { return r.videos; }, function (r) { return r.name; }, function (r) { return r.name === '未填' ? '' : 'data-subtitle="' + esc(r.name) + '"'; }, '部') +
       '<section class="vd-st-sec"><h3>最近觀看</h3>' + (s.recent.length ? '<ul class="vd-recent">' + s.recent.map(function (e) { return '<li data-id="' + esc(e.n.id) + '"><span class="vd-recent-t">' + esc(fmtStamp(e.s)) + '</span><span class="vd-recent-n">' + esc(e.n.title) + '</span></li>'; }).join('') + '</ul>' : '<div class="vd-st-none">還沒有觀看紀錄</div>') + '</section>' +
       '</div>';
     body.appendChild(wrap);
@@ -889,6 +1099,7 @@
       if ((b = e.target.closest('[data-actor]'))) { setFilter('actor', b.getAttribute('data-actor')); return; }
       if ((b = e.target.closest('[data-tag]'))) { setFilter('tag', b.getAttribute('data-tag')); return; }
       if ((b = e.target.closest('[data-lang]'))) { setFilter('lang', b.getAttribute('data-lang')); return; }
+      if ((b = e.target.closest('[data-subtitle]'))) { setFilter('subtitle', b.getAttribute('data-subtitle')); return; }
       if ((b = e.target.closest('[data-id]'))) { const n = byId(b.getAttribute('data-id')); if (n) openModal(n); }
     });
   }
@@ -897,7 +1108,7 @@
   function blockHTML(code) {
     const m = parse('```video\n' + code + '\n```');
     return '<div class="vds-card">' +
-      '<div class="vds-row">' + (m.code ? '<span class="vds-code">' + esc(m.code) + '</span>' : '') + (m.lang ? '<span class="vds-lang">' + esc(m.lang) + '</span>' : '') + '<span class="vds-n">看過 ' + m.watches.length + ' 次</span></div>' +
+      '<div class="vds-row">' + (m.code ? '<span class="vds-code">' + esc(m.code) + '</span>' : '') + (m.lang ? '<span class="vds-lang">' + esc(m.lang) + '</span>' : '') + (m.subtitle ? '<span class="vds-lang">' + esc(m.subtitle) + '</span>' : '') + '<span class="vds-n">看過 ' + m.watches.length + ' 次</span></div>' +
       (m.url ? '<div class="vds-url"><a href="' + esc(m.url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.url) + '</a></div>' : '') +
       (m.actors.length ? '<div class="vds-row">人物：' + m.actors.map(esc).join('、') + '</div>' : '') +
       (m.tags.length ? '<div class="vds-row">' + m.tags.map(function (t) { return '<span class="vds-tag">#' + esc(t) + '</span>'; }).join(' ') + '</div>' : '') +
@@ -907,7 +1118,7 @@
 
   global.Videos = {
     render: render, refresh: refresh, open: open, teardown: teardown, saved: saved,
-    isNote: isNote, parse: parse, generate: generate, blockHTML: blockHTML, stats: stats, buildGraph: buildGraph, parseBatch: parseBatch,
+    isNote: isNote, parse: parse, generate: generate, blockHTML: blockHTML, stats: stats, buildGraph: buildGraph, parseBatch: parseBatch, peopleIndex: peopleIndex,
     isOpen: function () { return !!modal; }
   };
 })(window);

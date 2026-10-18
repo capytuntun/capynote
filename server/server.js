@@ -688,6 +688,12 @@ async function handleApi(req, res, url) {
     const info = await linkpreview.preview(url.searchParams.get('url'), { noCache: noCache });
     return json(res, 200, info, noCache ? { 'Cache-Control': 'no-store' } : (info.error ? {} : { 'Cache-Control': 'private, max-age=3600' }));
   }
+  // 用名字找人（影片庫的人物誌／關聯圖大頭照）：固定問外部資料庫，不留快取
+  if (p === '/api/link-preview/person' && method === 'GET') {
+    if (!config.linkPreview) return json(res, 200, { error: '連結預覽已停用' });
+    const info = await linkpreview.person(url.searchParams.get('name'));
+    return json(res, 200, info, { 'Cache-Control': 'no-store' });
+  }
   if (p === '/api/link-preview/image' && method === 'GET') {
     if (!config.linkPreview) return json(res, 404, { error: 'not found' });
     const img = await linkpreview.image(url.searchParams.get('url'));

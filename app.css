@@ -3712,7 +3712,10 @@ span.dio-tab { cursor: default; }
    為了知道相關的是「哪幾篇」，名字沒出來等於只看到一團亮著的點。 */
 .graph-canvas.hide-labels .graph-node:not(.is-hover):not(.is-near) .graph-node-label { opacity: 0; }
 .graph-node.is-dim .graph-node-dot,
+.graph-node.is-dim .graph-node-img,
 .graph-node.is-dim .graph-node-label { opacity: .18; }
+/* 帶照片的節點（影片關聯圖的人物）：照片裁成圓形貼在放大的圓點上，圓點露出 1.5px 當邊框 */
+.graph-node-img { clip-path: circle(50%); pointer-events: none; transition: opacity .12s; }
 /* 滑過去：圓點外面補一圈同色的細光暈，點本身不變大（變大會把周圍的線推開，看起來像
    整張圖在跳）。stroke 走 currentColor，而 g.style.color 已經是這顆節點的顏色。 */
 .graph-node.is-hover .graph-node-dot { stroke: currentColor; stroke-width: 3; stroke-opacity: .35; }
@@ -6231,8 +6234,15 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 .vd-chip:hover { filter: brightness(.94); }
 :root[data-theme="dark"] .vd-chip.is-actor { color: #f0a4c0; }
 .vd-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: var(--fs-xs); color: var(--text-faint); }
-.vd-lang { padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--text-dim); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
-.vd-lang:hover { border-color: var(--accent); color: var(--accent); }
+/* 縮圖右下角：語言、字幕兩個標籤（跟左上的編號同一種黑底白字，點一下就依它篩選） */
+.vd-badges { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 4px; max-width: calc(100% - 16px); }
+.vd-badge {
+  display: inline-flex; align-items: center; max-width: 100%; padding: 2px 7px; border: 0; border-radius: 4px;
+  background: rgba(0, 0, 0, .78); color: #fff; font: inherit; font-size: var(--fs-xs); font-weight: 700; line-height: 1.4; letter-spacing: .02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.vd-badge.is-sub { background: rgba(217, 122, 156, .92); }
+.vd-badge:hover { filter: brightness(1.15); }
 .vd-meta-host { margin-left: auto; opacity: .8; }
 .vd-acts { display: flex; align-items: center; gap: 4px; padding: 0 8px 8px; margin-top: auto; }
 .vd-acts .btn { flex: 0 0 auto; padding: 4px 10px; font-size: var(--fs-xs); }
@@ -6317,6 +6327,25 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 [data-theme="dark"] .vd-bt-list li.is-done .vd-bt-st { color: #7bc67e; }
 [data-theme="dark"] .vd-bt-list li.is-warn .vd-bt-st { color: #e0a24a; }
 [data-theme="dark"] .vd-bt-list li.is-fail .vd-bt-st { color: #ef7b7b; }
+
+/* 人物誌：每位出現過的人物一張卡（大頭照、名字、部數／次數），點一下依人物篩選清單 */
+.vd-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; max-width: 1400px; }
+.vd-people-n { font-size: var(--fs-sm); color: var(--text-dim); }
+.vd-people-st { font-size: var(--fs-xs); color: var(--text-faint); }
+.vd-person {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 10px 14px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); text-align: center; cursor: pointer; outline: none; box-shadow: var(--shadow-sm);
+  transition: transform var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.vd-person:hover, .vd-person:focus-visible { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(9, 30, 66, .16); border-color: var(--border-strong); }
+.vd-person-av { position: relative; width: 88px; height: 88px; border-radius: 50%; overflow: hidden; background: rgba(217, 122, 156, .16); box-shadow: 0 0 0 2px #d97a9c; }
+.vd-person-av img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.vd-person-ph { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #b4476f; font-size: 30px; font-weight: 700; }
+.vd-person-av.is-empty .vd-person-ph { display: flex; }
+.vd-person-name { max-width: 100%; font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-person-meta, .vd-person-last { font-size: var(--fs-xs); color: var(--text-dim); }
+.vd-person-last { color: var(--text-faint); }
+:root[data-theme="dark"] .vd-person-ph { color: #f0a4c0; }
 
 /* 關聯圖分頁：graph.js 畫在這個固定高度的框裡 */
 .vd-graph { display: flex; flex-direction: column; height: calc(100dvh - 52px - 180px); min-height: 440px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
