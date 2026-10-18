@@ -158,8 +158,8 @@ function fetchLimited(target, o, signal, hops) {
       }
       if (status < 200 || status >= 300) {
         res.resume();
-        // Cloudflare 的人機驗證（cf-mitigated: challenge）：換 UA、改 TLS 參數都過不了（2026-10-13 對
-        // jable.tv 試過），只有真的瀏覽器能看——明說，讓使用者知道是對方擋、不是網址錯。
+        // Cloudflare 的人機驗證（cf-mitigated: challenge）：換 UA、改 TLS 參數都過不了，
+        // 只有真的瀏覽器能看——明說，讓使用者知道是對方擋、不是網址錯。
         const cf = String(res.headers['cf-mitigated'] || '') === 'challenge';
         return reject(fail('對方網站回應 ' + status + (cf ? '（Cloudflare 人機驗證擋住伺服器抓取，只有瀏覽器能看）' : '')));
       }
@@ -280,6 +280,26 @@ function extract(html, base) {
   };
 }
 
+// Site-specific thumbnail guessers for Cloudflare-blocked sites.
+// Image CDNs are usually not behind CF's JS challenge even when the HTML pages are.
+function guessThumbnail(u) {
+  const host = u.hostname.replace(/^www\./, '');
+  const segs = u.pathname.split('/').filter(Boolean);
+
+  // 日系 AV 番號（英文字母 2-8 碼 + 數字 1-5 位）→ DMM 公開封面 CDN，不受 CF 保護
+  // 格式：pics.dmm.co.jp/digital/video/{alpha}{num5}/{alpha}{num5}ps.jpg
+  for (let i = Math.max(0, segs.length - 2); i < segs.length; i++) {
+    let seg;
+    try { seg = decodeURIComponent(segs[i]).toLowerCase(); } catch (_) { seg = segs[i].toLowerCase(); }
+    const m = /^([a-z]{2,8})-?0*(\d{1,5})(?:[-_]|$)/.exec(seg);
+    if (!m) continue;
+    const code = m[1] + m[2].padStart(5, '0');
+    return 'https://pics.dmm.co.jp/digital/video/' + code + '/' + code + 'ps.jpg';
+  }
+
+  return null;
+}
+
 // ---------------- cache ----------------
 const CACHE_MAX = 500;
 const OK_TTL = 6 * 3600 * 1000;
@@ -329,7 +349,24 @@ async function preview(raw) {
     value = Object.assign({ url: key, finalUrl: r.url.toString() }, info);
     remember(key, value, OK_TTL);
   } catch (e) {
-    // 把原因留下來（對方回應 403、逾時、內容不是網頁…），前端的「抓不到預覽」才說得出為什麼。
+    // HTML 抓失敗（CF 擋、403…）→ 試從已知圖片 CDN 直接取封面
+    const thumb = guessThumbnail(target);
+    if (thumb) {
+      const imgTarget = parseTarget(thumb);
+      if (imgTarget) {
+        try {
+          await fetchLimited(imgTarget, {
+            accept: 'image/avif,image/webp,image/jpeg,image/png,image/*;q=0.8',
+            maxBytes: 128,
+            truncate: true,
+            checkType: function (t) { return IMAGE_TYPES.test(t.split(';')[0].trim().toLowerCase()); }
+          }, AbortSignal.timeout(5000), 0);
+          value = { url: key, image: thumb };
+          remember(key, value, FAIL_TTL);
+          return value;
+        } catch (_) { /* 圖片也抓不到，照舊回 error */ }
+      }
+    }
     value = { error: failReason(e) };
     remember(key, value, FAIL_TTL);
   }

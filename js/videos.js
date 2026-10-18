@@ -99,8 +99,7 @@
   function thumbOf(m) { return (m.preview && m.preview.image) || ytThumb(m.url) || ''; }
   function proxied(u) { return O && O.proxy ? O.proxy(u) : '/api/link-preview/image?url=' + encodeURIComponent(u); }
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
-  // 網址最後一段長得像番號（jable.tv/videos/nsps-994/、…/NSPS-994-uncensored）就取出來當番號：
-  // 很多影片站用 Cloudflare 人機驗證擋伺服器端抓取，預覽抓不到時至少番號與標題不用自己打。
+  // 網址最後一段長得像番號（/videos/nsps-994/、…/NSPS-994-uncensored）就取出來當番號：
   // 要整段都是番號（可帶 -xxx 後綴）才算，隨機的 slug（YouTube id 之類）不會誤判。
   function codeFromUrl(u) {
     try {
@@ -498,9 +497,8 @@
         if (code && !codeIn.value.trim()) { codeIn.value = code; fill.code = code; }
         if (code && !t.value.trim()) t.value = code;
         apply(Object.assign({ url: u, preview: pv && (pv.title || pv.image || pv.description) ? pv : null }, fill));
-        // 失敗原因來自伺服器（對方回應 403、逾時、連結預覽已停用…），顯示在預覽那一格與狀態列
-        modal.pvError = failed ? ((info && info.error) || '無法取得這個網頁') : (pv && !(pv.title || pv.image || pv.description) ? '這個網頁沒有標題或縮圖可以抓' : '');
-        if (modal.pvError) status('抓不到預覽：' + modal.pvError);
+        // 抓失敗就靜默，番號已從網址自動補齊；不把伺服器錯誤顯示在輸入框附近
+        modal.pvError = failed || (pv && !(pv.title || pv.image || pv.description));
         paintPreview(); paintPlayer();
       });
     }
@@ -508,8 +506,9 @@
       const box = q('.vd-m-pv');
       if (modal.fetching) { box.innerHTML = '<span class="vd-pv-wait">抓預覽中…</span>'; return; }
       const p = model.preview;
-      if (!p) { box.innerHTML = model.url ? '<span class="vd-pv-none">' + (modal.pvError ? '抓不到預覽：' + esc(modal.pvError) + '（標題、番號可以自己填）' : '沒有預覽') + '</span>' : ''; return; }
-      box.innerHTML = '<div class="vd-pv-t">' + esc(p.title || '') + '</div>' +
+      if (!p) { box.innerHTML = model.url ? '<span class="vd-pv-none">沒有預覽</span>' : ''; return; }
+      box.innerHTML =
+        (p.title ? '<div class="vd-pv-t">' + esc(p.title) + '</div>' : '') +
         (p.description ? '<div class="vd-pv-d">' + esc(p.description) + '</div>' : '') +
         '<div class="vd-pv-s">' + esc(p.site || hostOf(model.url)) + '</div>';
     }
