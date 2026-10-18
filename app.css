@@ -6370,6 +6370,34 @@ textarea.vd-t-in:focus { white-space: pre-wrap; overflow: auto; }
 .vd-table-foot .btn { flex: 0 0 auto; padding: 4px 10px; font-size: var(--fs-xs); }
 .vd-table-foot .btn .ic-svg { width: 13px; height: 13px; }
 
+/* 觀察區：只記連結。上面一個貼網址的框，底下一列一個連結（網址、備註、日期、開啟／加入影片／刪除） */
+.vd-watch { display: flex; flex-direction: column; gap: 14px; max-width: 1100px; }
+.vd-wl-add { display: flex; align-items: flex-start; gap: 8px; }
+.vd-wl-in { flex: 1 1 auto; min-height: 40px; resize: none; line-height: 1.5; font-family: ui-monospace, Consolas, monospace; font-size: var(--fs-sm); }
+.vd-wl-go { flex: 0 0 auto; height: 40px; }
+.vd-wl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); overflow: hidden; }
+.vd-wl:empty { display: none; }
+.vd-wl > .vd-empty { border: 0; border-radius: 0; }
+.vd-wl-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--border); transition: opacity var(--dur-1) var(--ease-out); }
+.vd-wl-row:first-child { border-top: 0; }
+.vd-wl-row:hover { background: var(--row-hover); }
+.vd-wl-row.is-gone { opacity: .3; pointer-events: none; }
+.vd-wl-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vd-wl-url { display: flex; gap: 0; min-width: 0; color: var(--text); text-decoration: none; font-size: var(--fs-sm); overflow: hidden; white-space: nowrap; }
+.vd-wl-url b { flex: 0 0 auto; font-weight: 700; }
+.vd-wl-url span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
+.vd-wl-url:hover b { color: var(--accent); text-decoration: underline; }
+.vd-wl-note { width: 100%; max-width: 520px; height: 26px; padding: 2px 6px; margin-left: -6px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--text-dim); font: inherit; font-size: var(--fs-xs); outline: none; }
+.vd-wl-note:hover { border-color: var(--border); }
+.vd-wl-note:focus { border-color: var(--accent); background: var(--bg); color: var(--text); }
+.vd-wl-date { flex: 0 0 auto; font-size: var(--fs-xs); color: var(--text-faint); white-space: nowrap; }
+.vd-wl-acts { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.vd-wl-acts .btn { flex: 0 0 auto; padding: 4px 10px; font-size: var(--fs-xs); }
+.vd-wl-acts .btn .ic-svg, .vd-wl-acts .icon-btn .ic-svg { width: 14px; height: 14px; }
+.vd-wl-acts .icon-btn { width: 28px; height: 28px; }
+.vd-wl-del:hover { color: #c62828; }
+@media (max-width: 640px) { .vd-wl-row { flex-wrap: wrap; } .vd-wl-main { flex-basis: 100%; } }
+
 /* 人物誌：每位出現過的人物一張卡（大頭照、名字、部數／次數），點一下依人物篩選清單 */
 .vd-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; max-width: 1400px; }
 .vd-people-n { font-size: var(--fs-sm); color: var(--text-dim); }

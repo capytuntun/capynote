@@ -69,6 +69,17 @@
   function fmtDay(s) { return s ? s.slice(0, 10).replace(/-/g, '/') : ''; }
 
   function isNote(n) { return !!(n && n.meta && n.meta.video); }
+  // 觀察區的一個連結也是 meta.video 的筆記（所以小說頁、樹、關聯圖一樣看不到它），多一個 meta.watch；
+  // 內文是一個 ```watch 圍欄：{ url, note, added }。刪除走影片同一條硬刪路線，不留痕跡。
+  function isWatch(n) { return !!(n && n.meta && n.meta.watch); }
+  const WATCH_FENCE = /```watch[^\n]*\n([\s\S]*?)\n```/;
+  function parseWatch(text) {
+    let raw = null;
+    try { const m = WATCH_FENCE.exec(String(text || '')); raw = m ? JSON.parse(m[1]) : null; } catch (e) { raw = null; }
+    raw = raw && typeof raw === 'object' ? raw : {};
+    return { url: safeUrl(raw.url), note: str(raw.note, 500), added: /^\d{4}-\d{2}-\d{2}$/.test(raw.added || '') ? raw.added : today() };
+  }
+  function generateWatch(w) { return '```watch\n' + JSON.stringify(parseWatch('```watch\n' + JSON.stringify(w || {}) + '\n```'), null, 2) + '\n```\n'; }
   function payloadOf(text) { const m = FENCE.exec(String(text || '')); return m ? m[1] : ''; }
   function blank() { return { url: '', code: '', movieTitle: '', actors: [], avatars: {}, avatarIds: {}, verified: {}, lang: '', subtitle: '', tags: [], watches: [], notes: '', added: today(), preview: null }; }
   // 人物名 → 值 的對照表：只留「這部影片的人物」的鍵（比對不分大小寫），值由 ok() 檢查
@@ -145,7 +156,8 @@
 
   // ---------------- 狀態 ----------------
   let O = null, host = null;
-  let view = 'list';                   // list | people | graph | stats
+  let view = 'list';                   // list | watch | people | graph | stats
+  let watchQuery = '';
   let query = '';
   let peopleQuery = '';
   let filter = { actor: null, tag: null, lang: null, subtitle: null };
@@ -171,7 +183,8 @@
     return true;
   }
 
-  function notes() { return (O && O.notes) || []; }
+  function notes() { return ((O && O.notes) || []).filter(function (n) { return !isWatch(n); }); }
+  function watchNotes() { return ((O && O.notes) || []).filter(isWatch); }
   function byId(id) { return notes().find(function (n) { return n.id === id; }) || null; }
   function allActors() { const s = {}; notes().forEach(function (n) { modelOf(n).actors.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
   function allTags() { const s = {}; notes().forEach(function (n) { modelOf(n).tags.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
@@ -252,9 +265,9 @@
     const head = el('div', 'vd-head');
     head.innerHTML =
       '<div class="vd-head-main"><div class="boards-title">' + ic('film') + '<span>影片</span></div>' +
-      '<div class="boards-sub">' + (list.length ? list.length + ' 部影片・共看過 ' + total + ' 次' : '還沒有影片') + '</div></div>' +
+      '<div class="boards-sub">' + (list.length ? list.length + ' 部影片・共看過 ' + total + ' 次' : '還沒有影片') + (watchNotes().length ? '・觀察區 ' + watchNotes().length + ' 個連結' : '') + '</div></div>' +
       '<div class="vd-head-right"><nav class="vd-tabs" aria-label="影片檢視">' +
-      [['list', 'list', '清單'], ['people', 'users', '人物誌'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
+      [['list', 'list', '清單'], ['watch', 'eye', '觀察區'], ['people', 'users', '人物誌'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
         return '<button class="vd-tab' + (view === t[0] ? ' is-active' : '') + '" type="button" data-view="' + t[0] + '" aria-pressed="' + (view === t[0]) + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
       }).join('') + '</nav>' +
       '<button class="btn vd-batch" type="button" title="貼一份網址清單，一次新增多部（可以帶全名）">' + ic('list') + '<span>批次新增</span></button>' +
@@ -266,6 +279,7 @@
     if (view === 'graph') paintGraph(body);
     else if (view === 'stats') paintStats(body);
     else if (view === 'people') paintPeople(body);
+    else if (view === 'watch') paintWatch(body);
     else paintList(body);
     ensureStored();   // 還是外部網址的縮圖／照片在背景存進系統
 
@@ -705,9 +719,12 @@
     return api;
   }
 
-  function openModal(note) {
+  // init（新增時）：{ url } 先帶進網址並抓預覽；{ fromWatch } 是觀察區的那一筆，建好影片就把它刪掉
+  function openModal(note, init) {
     closeModal(true);
+    init = init || {};
     const model = note ? modelOf(note) : blank();
+    if (!note && init.url) model.url = safeUrl(init.url);
     const isNew = !note;
     const ov = el('div', 'vd-overlay');
     ov.innerHTML =
@@ -846,10 +863,13 @@
         const btn = q('.vd-m-create'); btn.disabled = true;
         O.onCreate({ title: title, content: generate(model) }).then(function (n) {
           closeModal(true);
-          if (n) { paint(); openModal(byId(n.id) || n); }
+          // 從觀察區來的：影片建好了，那個連結就不用留著
+          if (init.fromWatch && O.onDeleteNow) O.onDeleteNow(init.fromWatch).catch(function () {});
+          if (n) { view = 'list'; paint(); openModal(byId(n.id) || n); }
         }, function () { btn.disabled = false; });
       });
       setTimeout(function () { urlIn.focus(); }, 30);
+      if (init.url && model.url) { urlTimer = setTimeout(function () { fetchPreview(false); }, 50); }
     } else {
       q('.vd-m-ok').addEventListener('click', function () { closeModal(true); });
       q('.vd-m-del').addEventListener('click', function () { const n = note; closeModal(true); if (O.onDelete) O.onDelete(n); });
@@ -1039,6 +1059,105 @@
       paint();
       if (made) toast('批次新增 ' + made + ' 部影片');
     }
+  }
+
+  // ---------------- 觀察區：只記連結 ----------------
+  // 貼上連結（可一次多行）Enter 就記下來；每一列：網址、備註（直接改）、記下的日期；開啟（照無痕
+  // 設定）、加入影片（開新增對話框、網址帶進去，建好就把這個連結拿掉）、刪除（直接硬刪，不問）。
+  function paintWatch(body) {
+    const wrap = el('div', 'vd-watch');
+    const items = watchNotes().map(function (n) { return { n: n, w: parseWatch(n.content) }; })
+      .sort(function (a, b) { return b.w.added.localeCompare(a.w.added) || (b.n.createdAt || 0) - (a.n.createdAt || 0); });
+    wrap.innerHTML =
+      '<div class="vd-wl-add"><textarea class="tt-input vd-wl-in" rows="1" placeholder="貼上連結，Enter 記下來（可以一次貼多行）" spellcheck="false"></textarea>' +
+      '<button class="btn btn-primary vd-wl-go" type="button">' + ic('plus') + '<span>記下來</span></button></div>' +
+      (items.length ? '<div class="vd-tools"><div class="search-box vd-search"><input type="search" placeholder="搜尋連結、備註…" value="' + esc(watchQuery) + '" aria-label="搜尋觀察區"></div>' +
+        '<span class="vd-people-n">' + items.length + ' 個連結</span>' +
+        '<button class="vd-incog' + (incognitoOn() ? ' is-on' : '') + '" type="button" aria-pressed="' + incognitoOn() + '" title="開啟連結時交給無痕視窗">' + ic('eye-off') + '<span>無痕開啟</span></button></div>' : '') +
+      '<ul class="vd-wl"></ul>';
+    body.appendChild(wrap);
+    const ul = wrap.querySelector('.vd-wl');
+    function fill() {
+      ul.innerHTML = '';
+      const q = watchQuery.trim().toLowerCase();
+      const rows = items.filter(function (it) { return !q || (it.w.url + '\n' + it.w.note + '\n' + it.n.title).toLowerCase().indexOf(q) >= 0; });
+      if (!rows.length) { ul.innerHTML = '<li class="vd-empty">' + (items.length ? '沒有符合的連結。' : ic('eye') + '<p>觀察區是空的。貼上連結就會記下來，之後想收藏再「加入影片」。</p>') + '</li>'; return; }
+      rows.forEach(function (it) { ul.appendChild(watchRow(it.n, it.w)); });
+    }
+    fill();
+    const ta = wrap.querySelector('.vd-wl-in'), go = wrap.querySelector('.vd-wl-go');
+    function grow() { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'; }
+    ta.addEventListener('input', grow);
+    ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); addWatchLinks(ta.value); ta.value = ''; grow(); } });
+    ta.addEventListener('paste', function () { setTimeout(grow, 0); });
+    go.addEventListener('click', function () { addWatchLinks(ta.value); ta.value = ''; grow(); ta.focus(); });
+    const s = wrap.querySelector('.vd-search input');
+    if (s) s.addEventListener('input', function () { watchQuery = s.value; fill(); });
+    const incog = wrap.querySelector('.vd-incog');
+    if (incog) incog.addEventListener('click', function (e) {
+      const on = !incognitoOn(); setIncognito(on);
+      e.currentTarget.classList.toggle('is-on', on); e.currentTarget.setAttribute('aria-pressed', String(on));
+      toast(on ? '「開啟連結」會交給無痕視窗' : '「開啟連結」改回一般分頁');
+    });
+    setTimeout(function () { if (host && view === 'watch') ta.focus(); }, 30);
+  }
+  function watchRow(n, w) {
+    const li = el('li', 'vd-wl-row');
+    li.setAttribute('data-id', n.id);
+    let path = '';
+    try { const u = new URL(w.url); path = (u.pathname + u.search).replace(/\/$/, ''); } catch (e) { path = ''; }
+    li.innerHTML =
+      '<div class="vd-wl-main"><a class="vd-wl-url vd-open" href="' + esc(w.url) + '" target="_blank" rel="noopener noreferrer" title="' + esc(w.url) + '">' +
+      '<b>' + esc(hostOf(w.url)) + '</b><span>' + esc(path) + '</span></a>' +
+      '<input class="vd-wl-note" type="text" value="' + esc(w.note) + '" placeholder="備註…" maxlength="500"></div>' +
+      '<span class="vd-wl-date">' + esc(fmtDay(w.added)) + '</span>' +
+      '<div class="vd-wl-acts">' +
+      '<a class="icon-btn vd-open" href="' + esc(w.url) + '" target="_blank" rel="noopener noreferrer" title="開啟連結">' + ic('external-link') + '</a>' +
+      '<button class="btn vd-wl-tovideo" type="button" title="用這個連結新增一部影片">' + ic('film') + '<span>加入影片</span></button>' +
+      '<button class="icon-btn vd-wl-del" type="button" title="刪除（直接刪，不會問）">' + ic('trash') + '</button></div>';
+    const noteIn = li.querySelector('.vd-wl-note');
+    noteIn.addEventListener('input', function () {
+      const cur = parseWatch(n.content);
+      cur.note = noteIn.value;
+      n.content = generateWatch(cur);
+      n.title = (cur.note.trim() || cur.url).slice(0, 300);
+      scheduleSave(n);
+    });
+    li.addEventListener('click', function (e) {
+      let b;
+      if ((b = e.target.closest('a.vd-open'))) { if (incognitoOn() && openIncognito(b.href)) e.preventDefault(); return; }
+      if (e.target.closest('.vd-wl-tovideo')) { openModal(null, { url: w.url, fromWatch: n }); return; }
+      if (e.target.closest('.vd-wl-del')) {
+        li.classList.add('is-gone');
+        if (O.onDeleteNow) O.onDeleteNow(n).then(function () { toast('已刪除連結'); }, function () { li.classList.remove('is-gone'); });
+      }
+    });
+    return li;
+  }
+  // 一段文字裡的每個網址各記一筆；已經在觀察區或影片庫裡的跳過
+  function addWatchLinks(text) {
+    const urls = [];
+    String(text || '').split(/[\s,，|]+/).forEach(function (t) {
+      const u = safeUrl(t);
+      // 要像個網址：主機名得有一個點（safeUrl 會替任何字補 https://，「不是網址」也會過）
+      let ok = false;
+      try { ok = !!u && /\.[a-z0-9-]{2,}$/i.test(new URL(u).hostname); } catch (e) { ok = false; }
+      if (ok && urls.indexOf(u) < 0) urls.push(u);
+    });
+    if (!urls.length) { toast('沒有看到網址'); return; }
+    const have = {};
+    watchNotes().forEach(function (n) { have[parseWatch(n.content).url.replace(/\/+$/, '').toLowerCase()] = 'watch'; });
+    notes().forEach(function (n) { const u = modelOf(n).url; if (u) have[u.replace(/\/+$/, '').toLowerCase()] = 'video'; });
+    let made = 0, dup = 0;
+    (async function () {
+      for (let i = 0; i < urls.length; i++) {
+        const k = urls[i].replace(/\/+$/, '').toLowerCase();
+        if (have[k]) { dup++; continue; }
+        have[k] = 'watch';
+        try { await O.onCreate({ title: urls[i].slice(0, 300), content: generateWatch({ url: urls[i], added: today() }), meta: { watch: true } }); made++; } catch (e) { /* onCreate 已經 toast */ }
+      }
+      if (made || dup) toast((made ? '記下 ' + made + ' 個連結' : '') + (dup ? (made ? '，' : '') + dup + ' 個已經有了' : ''));
+    })();
   }
 
   // ---------------- 人物的大頭照 ----------------
@@ -1406,7 +1525,8 @@
 
   global.Videos = {
     render: render, refresh: refresh, open: open, teardown: teardown, saved: saved,
-    isNote: isNote, parse: parse, generate: generate, blockHTML: blockHTML, stats: stats, buildGraph: buildGraph, parseBatch: parseBatch, peopleIndex: peopleIndex,
+    isNote: isNote, isWatch: isWatch, parse: parse, generate: generate, parseWatch: parseWatch, generateWatch: generateWatch,
+    blockHTML: blockHTML, stats: stats, buildGraph: buildGraph, parseBatch: parseBatch, peopleIndex: peopleIndex,
     isOpen: function () { return !!modal; }
   };
 })(window);

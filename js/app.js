@@ -2004,8 +2004,9 @@
   function videosOpts() {
     return {
       notes: state.notes.filter(function (n) { return n.area === 'novel' && isMine(n) && isVideoNote(n); }),
+      // d.meta：觀察區的連結是 { video: true, watch: true }（同一個區、同一道密碼、同一條硬刪路線）
       onCreate: function (d) {
-        return Store.createNote(d.title, null, { area: 'novel', content: d.content, meta: { video: true } }).then(function (n) {
+        return Store.createNote(d.title, null, { area: 'novel', content: d.content, meta: Object.assign({ video: true }, d.meta || {}) }).then(function (n) {
           state.notes.push(n);
           refreshViews();
           return n;
@@ -2023,6 +2024,13 @@
             toast('已刪除');
           }, function (e) { toast('刪除失敗：' + (e && e.message || e)); });
         });
+      },
+      // 觀察區的連結：不問、直接硬刪（只是個連結）
+      onDeleteNow: function (n) {
+        return Store.deleteNote(n.id, true).then(function () {
+          state.notes = state.notes.filter(function (x) { return x.id !== n.id; });
+          refreshViews();
+        }, function (e) { toast('刪除失敗：' + (e && e.message || e)); throw e; });
       },
       // 預覽走既有的 /api/link-preview（伺服器那邊有 SSRF 防護），縮圖透過它的代理（CSP 只准同源圖片）
       // 失敗時把原因（{ error }）一起交回去，對話框才說得出是對方擋、逾時還是網址不對
