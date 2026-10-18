@@ -6297,6 +6297,25 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 .vd-m-sp { flex: 1 1 auto; }
 .vd-m-status, .vd-m-hint { font-size: var(--fs-xs); color: var(--text-faint); }
 .vd-m-del .ic-svg { width: 14px; height: 14px; }
+/* 批次新增：清單貼進 textarea，開始後每行一列狀態 */
+.vd-batch-modal { width: min(720px, 100%); }
+.vd-bt-title { flex: 1 1 auto; font-size: var(--fs-lg); font-weight: 700; }
+.vd-bt-body { display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow: auto; }
+.vd-bt-help { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); }
+.vd-bt-help code { padding: 1px 5px; border-radius: 4px; background: var(--bg-2); font-size: var(--fs-xs); }
+.vd-bt-in { width: 100%; min-height: 160px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: var(--fs-sm); white-space: pre; }
+.vd-bt-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 40vh; overflow: auto; font-size: var(--fs-sm); }
+.vd-bt-list li { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border-radius: 4px; }
+.vd-bt-st { flex: 0 0 120px; font-size: var(--fs-xs); color: var(--text-faint); }
+.vd-bt-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.vd-bt-name { flex: 0 1 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-bt-list li.is-busy .vd-bt-st { color: var(--accent); }
+.vd-bt-list li.is-done .vd-bt-st { color: #2e7d32; }
+.vd-bt-list li.is-warn .vd-bt-st { color: #b26a00; }
+.vd-bt-list li.is-fail .vd-bt-st { color: #c62828; }
+[data-theme="dark"] .vd-bt-list li.is-done .vd-bt-st { color: #7bc67e; }
+[data-theme="dark"] .vd-bt-list li.is-warn .vd-bt-st { color: #e0a24a; }
+[data-theme="dark"] .vd-bt-list li.is-fail .vd-bt-st { color: #ef7b7b; }
 
 /* 關聯圖分頁：graph.js 畫在這個固定高度的框裡 */
 .vd-graph { display: flex; flex-direction: column; height: calc(100dvh - 52px - 180px); min-height: 440px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }

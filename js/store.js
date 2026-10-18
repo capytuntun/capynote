@@ -161,7 +161,8 @@
         return r.note;   // authoritative note (may hold merged content)
       });
     },
-    deleteNote: function (id) { return req('DELETE', '/api/notes/' + id); },
+    // purge=true 直接硬刪、不進垃圾桶（影片庫）；平常是移到垃圾桶
+    deleteNote: function (id, purge) { return req('DELETE', '/api/notes/' + id + (purge ? '?purge=1' : '')); },
     // 所有筆記／課程筆記／知識區 之間搬一篇筆記（js/app.js moveNoteToArea）；
     // area 是 null 或 'course'/'knowledge' ——novel／quick 不走這條，伺服器會拒絕。
     moveNoteArea: function (id, area, folderId) {
@@ -338,6 +339,8 @@
     // Title / description / image for a {%preview url %} card, fetched once per
     // URL for the session. Never rejects: a site that cannot be read resolves to
     // { error }, and the card just keeps showing the address.
+    // 硬刪一部影片後把它的預覽答案從這一頁的快取拿掉（伺服器那邊 api.deleteNote 也會忘掉）
+    forgetLinkPreview: function (url) { delete linkPreviewCache[url]; },
     getLinkPreview: function (url) {
       if (!linkPreviewCache[url]) {
         linkPreviewCache[url] = req('GET', '/api/link-preview?url=' + encodeURIComponent(url))

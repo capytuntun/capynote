@@ -454,7 +454,7 @@ async function handleApi(req, res, url) {
       return note ? json(res, 200, { note }) : json(res, 404, { error: 'not found' });
     }
     if (method === 'PUT') return send(await api.updateNote(user, id, await readJSON(req)));
-    if (method === 'DELETE') return send(await api.deleteNote(user, id));
+    if (method === 'DELETE') return send(await api.deleteNote(user, id, url.searchParams.get('purge') === '1'));
   }
 
   // Trash: owner-only. DELETE /api/notes/:id above only moves a note here; these

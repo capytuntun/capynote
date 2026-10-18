@@ -182,6 +182,7 @@
   function teardown() {
     flushSaves();
     closeModal(false);
+    closeBatch();
     teardownView();
     host = null;
   }
@@ -201,6 +202,7 @@
       [['list', 'list', '清單'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
         return '<button class="vd-tab' + (view === t[0] ? ' is-active' : '') + '" type="button" data-view="' + t[0] + '" aria-pressed="' + (view === t[0]) + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
       }).join('') + '</nav>' +
+      '<button class="btn vd-batch" type="button" title="貼一份網址清單，一次新增多部（可以帶全名）">' + ic('list') + '<span>批次新增</span></button>' +
       '<button class="btn btn-primary vd-add" type="button">' + ic('plus') + '<span>新增影片</span></button></div>';
     host.appendChild(head);
     const tabs = head.querySelector('.vd-tabs');
@@ -211,6 +213,7 @@
     else paintList(body);
 
     head.querySelector('.vd-add').addEventListener('click', function () { openModal(null); });
+    head.querySelector('.vd-batch').addEventListener('click', function () { openBatch(); });
     tabs.addEventListener('click', function (e) {
       const b = e.target.closest('[data-view]');
       if (b) setView(b.getAttribute('data-view'));
@@ -340,7 +343,7 @@
     return card;
   }
   function cardMenu(n, x, y) {
-    menuAt(x, y, [['open', '查看／編輯'], ['watch', '+1 看過'], ['copy', '複製連結', !modelOf(n).url], null, ['del', '移到垃圾桶', false, true]], function (a) {
+    menuAt(x, y, [['open', '查看／編輯'], ['watch', '+1 看過'], ['copy', '複製連結', !modelOf(n).url], null, ['del', '刪除', false, true]], function (a) {
       if (a === 'open') openModal(n);
       else if (a === 'watch') addWatch(n);
       else if (a === 'copy') { const u = modelOf(n).url; if (u && navigator.clipboard) navigator.clipboard.writeText(u).then(function () { toast('已複製連結'); }); }
@@ -475,7 +478,7 @@
       '</div></div>' +
       '<div class="vd-m-foot">' +
       (isNew ? '<span class="vd-m-hint">建立後隨時可以再改</span><span class="vd-m-sp"></span><button class="btn vd-m-cancel" type="button">取消</button><button class="btn btn-primary vd-m-create" type="button">建立</button>'
-        : '<button class="btn btn-danger vd-m-del" type="button">' + ic('trash') + '<span>移到垃圾桶</span></button><span class="vd-m-status"></span><span class="vd-m-sp"></span><button class="btn vd-m-ok" type="button">關閉</button>') +
+        : '<button class="btn btn-danger vd-m-del" type="button">' + ic('trash') + '<span>刪除</span></button><span class="vd-m-status"></span><span class="vd-m-sp"></span><button class="btn vd-m-ok" type="button">關閉</button>') +
       '</div></div>';
     document.body.appendChild(ov);
     modal = { overlay: ov, note: note, model: model, isNew: isNew, fetching: false };
@@ -645,6 +648,130 @@
     if (modal && modal.note && modal.note.id === note.id) { const s = modal.overlay.querySelector('.vd-m-status'); if (s) s.textContent = '已儲存'; }
   }
 
+  // ---------------- 批次新增：貼一份「網址 全名」清單 ----------------
+  // 一行一部：`網址` 或 `網址 全名`（空白／Tab／| 分隔，全名放前面也行）。每行依序抓預覽
+  // （一次一個，不去撞伺服器），有給全名就以給的為準、沒給才用抓到的；網址已經在庫裡的跳過；
+  // 抓不到預覽的照建（留網址、從網址切的編號、給的全名），該行會標「沒有預覽」。
+  let batch = null;                    // { overlay, running, cancel }
+  function parseBatch(text) {
+    const out = [];
+    String(text || '').split(/\r?\n/).forEach(function (line) {
+      const s = line.trim();
+      if (!s || s[0] === '#') return;
+      const parts = s.split(/[\s|]+/).filter(Boolean);
+      let url = '', idx = -1;
+      for (let i = 0; i < parts.length; i++) {
+        if (/^https?:\/\/\S+$/i.test(parts[i]) || /^www\.\S+\.\S+$/i.test(parts[i])) { url = safeUrl(parts[i]); idx = i; break; }
+      }
+      if (!url) { out.push({ line: s, url: '', name: '' }); return; }
+      parts.splice(idx, 1);
+      out.push({ line: s, url: url, name: parts.join(' ').replace(/^[\s,，:：-]+|[\s,，]+$/g, '').trim() });
+    });
+    return out;
+  }
+  function closeBatch() {
+    if (!batch) return;
+    const b = batch; batch = null;
+    b.cancel = true;
+    document.removeEventListener('keydown', onBatchKey, true);
+    b.overlay.remove();
+  }
+  function onBatchKey(e) {
+    if (e.key !== 'Escape' || !batch) return;
+    e.preventDefault(); e.stopPropagation();
+    if (batch.running) batch.cancel = true; else closeBatch();
+  }
+  function openBatch() {
+    if (batch) return;
+    closeModal(true);
+    const ov = el('div', 'vd-overlay');
+    ov.innerHTML =
+      '<div class="vd-modal vd-batch-modal" role="dialog" aria-modal="true" aria-label="批次新增影片">' +
+      '<div class="vd-m-head">' + ic('list') + '<span class="vd-bt-title">批次新增影片</span>' +
+      '<button class="icon-btn vd-m-close" type="button" title="關閉 (Esc)">' + ic('x') + '</button></div>' +
+      '<div class="vd-bt-body">' +
+      '<p class="vd-bt-help">一行一部：<code>網址</code> 或 <code>網址 全名</code>（空白、Tab 或 | 分隔）。有給全名就用你給的，沒給才用抓到的；已經在庫裡的網址會跳過。</p>' +
+      '<textarea class="tt-input vd-bt-in" rows="8" placeholder="https://…/videos/abc-123/\nhttps://…/videos/def-456/  這一部的全名\n…" spellcheck="false"></textarea>' +
+      '<ol class="vd-bt-list" hidden></ol>' +
+      '</div>' +
+      '<div class="vd-m-foot"><span class="vd-m-status vd-bt-status"></span><span class="vd-m-sp"></span>' +
+      '<button class="btn vd-bt-cancel" type="button">關閉</button>' +
+      '<button class="btn btn-primary vd-bt-go" type="button" disabled>' + ic('plus') + '<span>開始</span></button></div></div>';
+    document.body.appendChild(ov);
+    batch = { overlay: ov, running: false, cancel: false };
+    const q = function (s) { return ov.querySelector(s); };
+    const ta = q('.vd-bt-in'), go = q('.vd-bt-go'), list = q('.vd-bt-list'), status = q('.vd-bt-status'), cancelBtn = q('.vd-bt-cancel');
+    function count() {
+      const items = parseBatch(ta.value);
+      const ok = items.filter(function (it) { return it.url; }).length;
+      go.disabled = !ok;
+      status.textContent = ok ? ok + ' 部' + (items.length - ok ? '（' + (items.length - ok) + ' 行沒有網址）' : '') : '';
+    }
+    ta.addEventListener('input', count);
+    q('.vd-m-close').addEventListener('click', function () { closeBatch(); });
+    cancelBtn.addEventListener('click', function () { if (batch && batch.running) batch.cancel = true; else closeBatch(); });
+    ov.addEventListener('mousedown', function (e) { if (e.target === ov && batch && !batch.running) closeBatch(); });
+    document.addEventListener('keydown', onBatchKey, true);
+    go.addEventListener('click', function () { run(); });
+    setTimeout(function () { ta.focus(); }, 30);
+
+    async function run() {
+      const items = parseBatch(ta.value).filter(function (it) { return it.url; });
+      if (!items.length || !batch) return;
+      batch.running = true; batch.cancel = false;
+      go.disabled = true; ta.disabled = true; cancelBtn.textContent = '停止';
+      list.hidden = false;
+      list.innerHTML = items.map(function (it, i) {
+        return '<li data-i="' + i + '"><span class="vd-bt-st">等待</span><span class="vd-bt-url" title="' + esc(it.url) + '">' + esc(it.url) + '</span>' +
+          (it.name ? '<span class="vd-bt-name" title="' + esc(it.name) + '">' + esc(it.name) + '</span>' : '') + '</li>';
+      }).join('');
+      const seen = {};
+      notes().forEach(function (n) { const u = modelOf(n).url; if (u) seen[u.replace(/\/+$/, '').toLowerCase()] = true; });
+      let made = 0, skipped = 0, failed = 0, stopped = false;
+      for (let i = 0; i < items.length; i++) {
+        if (!batch || batch.cancel) { stopped = true; break; }
+        const it = items[i];
+        const row = list.querySelector('li[data-i="' + i + '"]');
+        const st = row.querySelector('.vd-bt-st');
+        const key = it.url.replace(/\/+$/, '').toLowerCase();
+        if (seen[key]) { st.textContent = '已存在'; row.className = 'is-skip'; skipped++; continue; }
+        seen[key] = true;
+        st.textContent = '抓取中…'; row.className = 'is-busy';
+        status.textContent = (i + 1) + ' / ' + items.length;
+        let info = null;
+        if (O.onPreview) { try { info = await O.onPreview(it.url); } catch (e) { info = null; } }
+        if (!batch || batch.cancel) { st.textContent = '已停止'; row.className = ''; stopped = true; break; }
+        const noPv = !info || info.error;
+        const m = blank();
+        m.url = it.url;
+        m.code = (!noPv && str(info.code, 60).trim()) || codeFromUrl(it.url);
+        m.movieTitle = it.name || (!noPv ? str(info.movieTitle || info.title, 300).trim() : '');
+        m.actors = !noPv && Array.isArray(info.actors) ? cleanList(info.actors, 10, 60) : [];
+        if (!noPv) {
+          const pv = { title: str(info.title, 200), description: str(info.description, 300), image: safeUrl(info.image), site: str(info.siteName, 80) };
+          if (!pv.image) pv.image = ytThumb(it.url);
+          m.preview = (pv.title || pv.image || pv.description) ? pv : null;
+        }
+        const title = it.name || (m.preview && m.preview.title) || m.code || hostOf(it.url) || '未命名影片';
+        try {
+          await O.onCreate({ title: title, content: generate(m) });
+          made++;
+          st.textContent = noPv ? '已建立（沒有預覽）' : '已建立';
+          row.className = noPv ? 'is-warn' : 'is-done';
+        } catch (e) {
+          failed++; st.textContent = '建立失敗'; row.className = 'is-fail';
+        }
+      }
+      if (!batch) return;
+      batch.running = false; batch.cancel = false;
+      cancelBtn.textContent = '關閉';
+      status.textContent = (stopped ? '已停止：' : '完成：') + '新增 ' + made + ' 部' +
+        (skipped ? '、跳過 ' + skipped + ' 部已存在' : '') + (failed ? '、失敗 ' + failed + ' 部' : '');
+      paint();
+      if (made) toast('批次新增 ' + made + ' 部影片');
+    }
+  }
+
   // ---------------- 關聯圖：影片—人物—標籤 ----------------
   function buildGraph(list) {
     const nodes = [], byIdx = {}, edges = [], seen = {};
@@ -770,7 +897,7 @@
 
   global.Videos = {
     render: render, refresh: refresh, open: open, teardown: teardown, saved: saved,
-    isNote: isNote, parse: parse, generate: generate, blockHTML: blockHTML, stats: stats, buildGraph: buildGraph,
+    isNote: isNote, parse: parse, generate: generate, blockHTML: blockHTML, stats: stats, buildGraph: buildGraph, parseBatch: parseBatch,
     isOpen: function () { return !!modal; }
   };
 })(window);

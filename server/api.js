@@ -776,13 +776,28 @@ async function broadcastCursor(user, id, body) {
 // "Delete" moves the note to the trash. The row stays in `notes` with deleted_at
 // set, so shares, versions and images survive and a restore is a one-column
 // update; it is deleted for good by purgeNote / emptyTrash / the retention sweep.
-async function deleteNote(user, id) {
+const linkpreview = require('./linkpreview');
+// purge=true：直接硬刪、不進垃圾桶（影片庫用——使用者要「不留任何痕跡」）。版本／分享／公開連結
+// 跟著 FK 一起掉，檔案筆記的檔案照 purgeNote 的規則處理，伺服器的連結預覽快取也一併忘掉。
+async function deleteNote(user, id, purge) {
   const row = await q.noteById.get(id);
   const perm = await permFor(user, row);
   if (!canRead(perm)) return { status: 404 };
   if (perm !== 'owner') return { status: 403, error: '只有擁有者可以刪除筆記' };
+  if (purge) {
+    const f = fileOfNoteRow(row);
+    await q.deleteNote.run(id);
+    await dropFileIfUnused(f);
+    forgetPreviewOf(row);
+    return { ok: true, purged: true };
+  }
   await q.trashNote.run(Date.now(), id);
   return { ok: true };
+}
+function forgetPreviewOf(row) {
+  const m = /"url"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(String(row.content || ''));
+  if (!m) return;
+  try { linkpreview.forget(JSON.parse('"' + m[1] + '"')); } catch (e) { /* ignore */ }
 }
 
 // ---------------- trash ----------------

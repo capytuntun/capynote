@@ -368,6 +368,43 @@ function normCode(s) {
   const m = /^\s*([a-z]{2,8})-?0*(\d{1,6})\s*$/i.exec(String(s || ''));
   return m ? m[1].toUpperCase() + '-' + Number(m[2]) : null;
 }
+// 日本新字體 → 繁體：人物名裡常見的字。資料庫沒給中文名時（男性多半只有日文漢字）至少把字形對回來
+const TRAD = {
+  '広': '廣', '沢': '澤', '浜': '濱', '竜': '龍', '斎': '齋', '桜': '櫻', '条': '條', '滝': '瀧', '円': '圓', '国': '國',
+  '気': '氣', '関': '關', '鉄': '鐵', '塩': '鹽', '弥': '彌', '来': '來', '恵': '惠', '実': '實', '穂': '穗', '栄': '榮',
+  '芸': '藝', '絵': '繪', '聡': '聰', '総': '總', '緑': '綠', '録': '錄', '証': '證', '読': '讀', '売': '賣', '続': '續',
+  '単': '單', '戦': '戰', '楽': '樂', '薬': '藥', '価': '價', '渋': '澁', '児': '兒', '勧': '勸', '歓': '歡', '観': '觀',
+  '権': '權', '験': '驗', '険': '險', '剣': '劍', '検': '檢', '済': '濟', '斉': '齊', '静': '靜', '寿': '壽', '応': '應',
+  '桧': '檜', '辺': '邊', '訳': '譯', '駅': '驛', '釈': '釋', '択': '擇', '亜': '亞', '悪': '惡', '圧': '壓', '医': '醫',
+  '営': '營', '駆': '驅', '蔵': '藏', '徳': '德', '独': '獨', '涙': '淚', '齢': '齡', '豊': '豐', '宝': '寶', '万': '萬',
+  '与': '與', '誉': '譽', '黒': '黑', '歩': '步', '両': '兩', '乱': '亂', '旧': '舊', '寛': '寬', '瀬': '瀨', '粋': '粹',
+  '繊': '纖', '姫': '姬', '恋': '戀', '変': '變', '発': '發', '様': '樣', '礼': '禮', '伝': '傳', '転': '轉', '団': '團',
+  '図': '圖', '学': '學', '覚': '覺', '桟': '棧', '荘': '莊', '専': '專', '将': '將', '帰': '歸', '帯': '帶', '満': '滿'
+};
+function toTrad(s) { return String(s || '').replace(/[㐀-鿿]/g, function (ch) { return TRAD[ch] || ch; }); }
+
+// 人物頁的第一個名字是中文名（有的話），後面逗號分隔的是日文名與別名；一個 id 只抓一次
+const actorCache = new Map();
+const ACTOR_CACHE_MAX = 2000;
+async function actorName(id, fallback) {
+  if (actorCache.has(id)) return actorCache.get(id);
+  let name = fallback;
+  try {
+    const t = parseTarget(LOOKUP_BASE + '/actors/' + id);
+    if (t) {
+      const r = await fetchLimited(t, LOOKUP_OPTS, AbortSignal.timeout(6000), 0);
+      const m = /<span class="actor-section-name">([^<]*)<\/span>/.exec(r.body.toString('utf-8'));
+      const first = m ? decodeEntities(m[1]).split(',')[0].trim() : '';
+      if (first) name = first;
+    }
+  } catch (_) { /* 人物頁抓不到就用詳細頁上的名字 */ }
+  name = toTrad(name);
+  actorCache.delete(id);
+  actorCache.set(id, name);
+  while (actorCache.size > ACTOR_CACHE_MAX) actorCache.delete(actorCache.keys().next().value);
+  return name;
+}
+
 const LOOKUP_OPTS = {
   ua: BROWSER_UA, extraHeaders: BROWSER_NAV_HEADERS,
   accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
@@ -408,15 +445,17 @@ async function lookupByCode(code) {
     const panelRe = /<div class="panel-block">([\s\S]*?)<\/div>/g;
     let block = '', pb;
     while ((pb = panelRe.exec(dh))) { if (/href="\/actors\/[\w-]+"/.test(pb[1])) { block = pb[1]; break; } }
-    const aRe = /<a([^>]*)href="\/actors\/[\w-]+"[^>]*>([^<]+)<\/a>/g;
+    const aRe = /<a([^>]*)href="\/actors\/([\w-]+)"[^>]*>([^<]+)<\/a>/g;
     const female = [], other = [];
     let a;
     while ((a = aRe.exec(block))) {
-      const name = decodeEntities(a[2]).trim();
+      const name = decodeEntities(a[3]).trim();
       if (!name) continue;
-      (/actor-female/.test(a[1]) ? female : other).push(name);
+      (/actor-female/.test(a[1]) ? female : other).push({ id: a[2], name: name });
     }
-    out.actors = female.concat(other).filter(function (n, i, arr) { return arr.indexOf(n) === i; }).slice(0, 20);
+    // 名字改成繁體中文：平行抓每個人物頁（有快取），拿不到就用詳細頁上的
+    const names = await Promise.all(female.concat(other).slice(0, 20).map(function (p) { return actorName(p.id, p.name); }));
+    out.actors = names.filter(function (n, i, arr) { return n && arr.indexOf(n) === i; });
   } catch (_) { /* 搜尋頁的全名、縮圖還是有用 */ }
   return out;
 }
@@ -550,4 +589,10 @@ async function image(raw) {
   }
 }
 
-module.exports = { preview, image, parseTarget, isBlockedAddress, extract };
+// 忘掉一個網址的預覽快取（硬刪一部影片時：不留它的標題、人物、縮圖網址在記憶體裡）
+function forget(raw) {
+  const t = parseTarget(raw);
+  if (t) cache.delete(t.toString());
+}
+
+module.exports = { preview, image, forget, parseTarget, isBlockedAddress, extract };

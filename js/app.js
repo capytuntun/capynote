@@ -2012,13 +2012,15 @@
         }, function (e) { toast('建立失敗：' + (e && e.message || e)); throw e; });
       },
       onSave: videoSave,
+      // 影片是硬刪：不進垃圾桶、版本／分享跟著掉、兩邊的預覽快取都忘掉——使用者要「不留任何痕跡」
       onDelete: function (n) {
-        showConfirm({ title: '移到垃圾桶', message: '把影片「' + n.title + '」移到垃圾桶？可以從垃圾桶還原。', ok: '移到垃圾桶', danger: true }).then(function (yes) {
+        showConfirm({ title: '刪除影片', message: '直接刪除「' + n.title + '」？不會進垃圾桶、不留版本紀錄，無法復原。', ok: '刪除', danger: true }).then(function (yes) {
           if (!yes) return;
-          Store.deleteNote(n.id).then(function () {
+          Store.deleteNote(n.id, true).then(function () {
+            try { Store.forgetLinkPreview(Videos.parse(n.content).url); } catch (e) { /* ignore */ }
             state.notes = state.notes.filter(function (x) { return x.id !== n.id; });
             refreshViews();
-            toast('已移到垃圾桶');
+            toast('已刪除');
           }, function (e) { toast('刪除失敗：' + (e && e.message || e)); });
         });
       },
