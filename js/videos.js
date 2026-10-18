@@ -156,7 +156,8 @@
 
   // ---------------- 狀態 ----------------
   let O = null, host = null;
-  let view = 'list';                   // list | watch | people | graph | stats
+  let view = 'list';                   // list | watch | people | person | graph | stats
+  let personKey = '';                  // view === 'person' 時看的是誰（小寫名字）
   let watchQuery = '';
   let query = '';
   let peopleQuery = '';
@@ -289,7 +290,8 @@
       '<div class="boards-sub">' + (list.length ? list.length + ' 部影片・共看過 ' + total + ' 次' : '還沒有影片') + (watchNotes().length ? '・觀察區 ' + watchNotes().length + ' 個連結' : '') + '</div></div>' +
       '<div class="vd-head-right"><nav class="vd-tabs" aria-label="影片檢視">' +
       [['list', 'list', '清單'], ['watch', 'eye', '觀察區'], ['people', 'users', '人物誌'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
-        return '<button class="vd-tab' + (view === t[0] ? ' is-active' : '') + '" type="button" data-view="' + t[0] + '" aria-pressed="' + (view === t[0]) + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
+        const on = view === t[0] || (view === 'person' && t[0] === 'people');
+        return '<button class="vd-tab' + (on ? ' is-active' : '') + '" type="button" data-view="' + t[0] + '" aria-pressed="' + on + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
       }).join('') + '</nav>' +
       '<button class="btn vd-reveal' + (revealed ? ' is-on' : '') + '" type="button" aria-pressed="' + revealed + '" title="圖片預設是模糊的，按一下全部顯示；再按一下遮回去">' + ic(revealed ? 'eye-off' : 'eye') + '<span>' + (revealed ? '隱藏圖片' : '顯示圖片') + '</span></button>' +
       '<button class="btn vd-batch" type="button" title="貼一份網址清單，一次新增多部（可以帶全名）">' + ic('list') + '<span>批次新增</span></button>' +
@@ -301,6 +303,7 @@
     if (view === 'graph') paintGraph(body);
     else if (view === 'stats') paintStats(body);
     else if (view === 'people') paintPeople(body);
+    else if (view === 'person') paintPerson(body);
     else if (view === 'watch') paintWatch(body);
     else paintList(body);
     hydrate(host);    // 有 id 的圖從本機快取填進去
@@ -326,6 +329,7 @@
     });
   }
   function setView(v) { if (v === view) return; view = v; paint(); }
+  function openPerson(key) { personKey = String(key || '').toLowerCase(); view = 'person'; paint(); if (host) host.scrollIntoView && window.scrollTo(0, 0); }
   function setFilter(kind, value) {
     filter = { actor: null, tag: null, lang: null, subtitle: null };
     if (kind) filter[kind] = value;
@@ -1494,14 +1498,15 @@
       '<div class="vd-person-name" title="' + esc(p.name) + '">' + esc(p.name) + '</div>' +
       '<div class="vd-person-meta">' + p.videos.length + ' 部・看過 ' + p.watches + ' 次</div>' +
       (p.last ? '<div class="vd-person-last">最近看：' + esc(fmtDay(p.last)) + '</div>' : '');
-    card.addEventListener('click', function () { setFilter('actor', p.name); });
-    card.addEventListener('keydown', function (e) { if (e.key === 'Enter') setFilter('actor', p.name); });
+    card.addEventListener('click', function () { openPerson(p.key); });
+    card.addEventListener('keydown', function (e) { if (e.key === 'Enter') openPerson(p.key); });
     card.addEventListener('contextmenu', function (e) { e.preventDefault(); personMenu(p, e.clientX, e.clientY); });
     return card;
   }
   function personMenu(p, x, y) {
-    menuAt(x, y, [['videos', '看這個人的影片'], ['photo', '重新找照片'], null, ['remove', '從所有影片拿掉', false, true]], function (a) {
-      if (a === 'videos') setFilter('actor', p.name);
+    menuAt(x, y, [['open', '打開這個人的頁面'], ['videos', '在清單裡篩選她的影片'], ['photo', '重新找照片'], null, ['remove', '從所有影片拿掉', false, true]], function (a) {
+      if (a === 'open') openPerson(p.key);
+      else if (a === 'videos') setFilter('actor', p.name);
       else if (a === 'photo') {
         delete avatarMiss[p.key];
         notes().forEach(function (n) {
@@ -1512,13 +1517,61 @@
           delete m.avatars[k]; delete m.avatarIds[k]; delete m.verified[k];
           write(n, m); if (O.onSave) O.onSave(n);
         });
-        if (view === 'people') paint();
+        if (view === 'people' || view === 'person') paint();
       } else if (a === 'remove') {
         removePerson(p.key, p.name);
         toast('已把「' + p.name + '」從所有影片拿掉');
+        if (view === 'person') { view = 'people'; }
         if (view === 'people') paint();
       }
     });
+  }
+  // 一個人的頁面：大照片、名字、數字、動作；底下她所有影片的卡片（跟清單同一種卡）
+  function paintPerson(body) {
+    const p = peopleIndex().find(function (x) { return x.key === personKey && x.verified; });
+    if (!p) { view = 'people'; paintPeople(body); return; }
+    const wrap = el('div', 'vd-pp');
+    const lw = p.last;
+    wrap.innerHTML =
+      '<div class="vd-pp-head">' +
+      '<button class="btn vd-pp-back" type="button">' + ic('arrow-left') + '<span>人物誌</span></button>' +
+      '<div class="vd-person-av vd-pp-av' + (p.avatar ? '' : ' is-empty') + '" title="照片">' +
+      (p.avatar ? imgTag(srcOf(p.avatar, p.avatarId), proxied(p.avatar), '', p.avatarId) : '') +
+      '<span class="vd-person-ph">' + esc(p.name.slice(0, 1)) + '</span></div>' +
+      '<div class="vd-pp-main"><h2 class="vd-pp-name">' + esc(p.name) + '</h2>' +
+      '<div class="vd-pp-meta">' + p.videos.length + ' 部影片・看過 ' + p.watches + ' 次' + (lw ? '・最近看 ' + esc(fmtDay(lw)) : '・還沒看過') + '</div>' +
+      '<div class="vd-pp-acts">' +
+      '<button class="btn vd-pp-filter" type="button">' + ic('list') + '<span>在清單裡篩選</span></button>' +
+      '<button class="btn vd-pp-photo" type="button">' + ic('refresh-cw') + '<span>重新找照片</span></button>' +
+      '<button class="btn btn-danger vd-pp-remove" type="button">' + ic('trash') + '<span>從所有影片拿掉</span></button>' +
+      '</div></div></div>' +
+      '<h3 class="vd-pp-sub">影片</h3><div class="vd-grid vd-pp-grid"></div>';
+    body.appendChild(wrap);
+    const grid = wrap.querySelector('.vd-pp-grid');
+    cardVk = verifiedKeys();
+    sorted(p.videos).forEach(function (r) { grid.appendChild(makeCard(r.n, r.m)); });
+    cardVk = null;
+    wrap.querySelector('.vd-pp-back').addEventListener('click', function () { setView('people'); });
+    wrap.querySelector('.vd-pp-filter').addEventListener('click', function () { setFilter('actor', p.name); });
+    wrap.querySelector('.vd-pp-photo').addEventListener('click', function () {
+      delete avatarMiss[p.key];
+      notes().forEach(function (n) {
+        const m = liveModel(n);
+        const k = Object.keys(m.avatars).find(function (a) { return a.toLowerCase() === p.key; });
+        if (!k) return;
+        if (m.avatarIds[k]) dropImage(m.avatarIds[k]);
+        delete m.avatars[k]; delete m.avatarIds[k]; delete m.verified[k];
+        write(n, m); if (O.onSave) O.onSave(n);
+      });
+      paint();
+    });
+    wrap.querySelector('.vd-pp-remove').addEventListener('click', function () {
+      removePerson(p.key, p.name);
+      toast('已把「' + p.name + '」從所有影片拿掉');
+      setView('people');
+    });
+    // 照片有了／改名了就重畫這一頁
+    ensureAvatars(function (q, info, changed) { if (view === 'person' && host && (changed || (q.key === personKey && info && !info.error))) paint(); });
   }
   function paintPeople(body) {
     const all = peopleIndex();
@@ -1588,14 +1641,14 @@
       container: box,
       data: buildGraph(notes()),
       title: '影片關聯圖',
-      hint: '點一下看關聯・雙擊開影片或依人物／hashtag 篩選・拖曳、滾輪縮放',
+      hint: '點一下看關聯・雙擊開影片、人物頁或依 hashtag 篩選・拖曳、滾輪縮放',
       legend: [['is-video', '影片'], ['is-actor', '人物'], ['is-tag', 'hashtag']],
       emptyText: '還沒有影片，或影片都還沒填人物與 hashtag。',
       closeLabel: '回清單',
       showLabels: true,
       onOpenNode: function (n) {
         if (n.kind === 'video') { view = 'list'; paint(); openModal(byId(n.note.id) || n.note); }
-        else if (n.kind === 'actor') setFilter('actor', n.label);
+        else if (n.kind === 'actor') openPerson(n.label);
         else if (n.kind === 'tag') setFilter('tag', n.label.replace(/^#/, ''));
       },
       onClose: function () { setView('list'); }

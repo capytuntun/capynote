@@ -6428,6 +6428,21 @@ textarea.vd-t-in:focus { white-space: pre-wrap; overflow: auto; }
 .vd-person-last { color: var(--text-faint); }
 :root[data-theme="dark"] .vd-person-ph { color: #f0a4c0; }
 
+/* 人物頁：大照片＋名字＋數字＋動作，底下是她的影片卡片 */
+.vd-pp { display: flex; flex-direction: column; gap: 16px; }
+.vd-pp-head { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 18px 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.vd-pp-back { flex: 0 0 auto; align-self: flex-start; }
+.vd-pp-back .ic-svg { width: 14px; height: 14px; }
+.vd-person-av.vd-pp-av { width: 160px; height: 160px; flex: 0 0 auto; }
+.vd-pp-av .vd-person-ph { font-size: 56px; }
+.vd-pp-main { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.vd-pp-name { margin: 0; font-size: 24px; font-weight: 800; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
+.vd-pp-meta { font-size: var(--fs-sm); color: var(--text-dim); }
+.vd-pp-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.vd-pp-acts .btn { flex: 0 0 auto; }
+.vd-pp-acts .btn .ic-svg { width: 14px; height: 14px; }
+.vd-pp-sub { margin: 4px 0 -6px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-dim); }
+
 /* 關聯圖分頁：graph.js 畫在這個固定高度的框裡 */
 .vd-graph { display: flex; flex-direction: column; height: calc(100dvh - 52px - 180px); min-height: 440px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 /* 這個框比整頁的關聯圖窄：提示文字要能縮（省略號），不然右邊的「回清單」被擠出框外 */
