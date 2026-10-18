@@ -39,7 +39,7 @@
   // 紫／青的重點線——調色盤裡橘棕多放幾份，雜湊出來的分布才會是「一片暖色底、
   // 零星幾條彩色」，不是每種顏色平均分配的彩虹。
   const EDGE_COLORS = ['#c9822a', '#c9822a', '#c9822a', '#b8702a', '#a86a2c', '#4f8fd6', '#d65f6b', '#8e6fd6', '#4fb0a8'];
-  // 標籤與「演員」（影片關聯圖，js/videos.js）這類節點顏色固定（CSS 的 .graph-node-<kind>），
+  // 標籤與「人物」（影片關聯圖，js/videos.js）這類節點顏色固定（CSS 的 .graph-node-<kind>），
   // 其餘（筆記、影片）每顆用 id 雜湊出自己的顏色。
   const FIXED_KINDS = { tag: true, actor: true };
   function nodeColor(n) { return FIXED_KINDS[n.kind] ? null : NODE_COLORS[hash(n.id) % NODE_COLORS.length]; }
@@ -113,7 +113,7 @@
   function open(notes, opts) {
     opts = opts || {};
     // opts.data：呼叫端自己算好的 { nodes: [{id, kind, label, note?, deg}], edges: [{a, b, kind}] }
-    // （影片關聯圖 js/videos.js 用：節點是影片／演員／hashtag，不是筆記）；沒給就從筆記內文建圖。
+    // （影片關聯圖 js/videos.js 用：節點是影片／人物／hashtag，不是筆記）；沒給就從筆記內文建圖。
     const data = opts.data || buildGraph(notes || []);
     const legend = opts.legend || [['is-note', '筆記'], ['is-tag', '標籤']];
 

@@ -6,7 +6,7 @@
  * graphNotes()/dashOpts().allNotes 本來就把 novel 整區排除）。標題是筆記的 title，其餘欄位
  * 是內文裡一個 ```video 圍欄的 JSON（跟看板／start.me／timetree 同一套「文字就是真相」）：
  *
- *   { url, code（番號）, actors: [..], lang, tags: [..], watches: ['YYYY-MM-DDTHH:MM', ..],
+ *   { url, code（編號）, actors: [..], lang, tags: [..], watches: ['YYYY-MM-DDTHH:MM', ..],
  *     notes, added: 'YYYY-MM-DD', preview: { title, description, image, site } }
  *
  * 觀看紀錄是手動的：卡片或對話框上按一次「+1 看過」就加一個當下的時間戳，每一筆都能刪。
@@ -14,8 +14,8 @@
  * /api/link-preview/image 代理（CSP 只准同源圖片）；YouTube／Google Drive 的連結在對話框裡
  * 直接用 MD.videoEmbed 嵌入播放器（CSP frame-src 只准這兩家）。
  *
- * 影片自己的關聯圖（影片—演員—標籤）用 graph.js 畫（Graph.open 的 opts.data 直接給節點與
- * 邊），統計頁純計算（演員／標籤／語言／每月觀看次數／最常看）。這兩個都只看影片，外面的
+ * 影片自己的關聯圖（影片—人物—標籤）用 graph.js 畫（Graph.open 的 opts.data 直接給節點與
+ * 邊），統計頁純計算（人物／標籤／語言／每月觀看次數／最常看）。這兩個都只看影片，外面的
  * 關聯圖看不到這裡的任何東西。
  *
  *   Videos.render(container, opts) / refresh(opts) / open(noteId) / teardown()
@@ -102,8 +102,8 @@
   function thumbOf(m) { return (m.preview && m.preview.image) || ytThumb(m.url) || ''; }
   function proxied(u) { return O && O.proxy ? O.proxy(u) : '/api/link-preview/image?url=' + encodeURIComponent(u); }
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
-  // 網址最後一段長得像番號（/videos/nsps-994/、…/NSPS-994-uncensored）就取出來當番號：
-  // 要整段都是番號（可帶 -xxx 後綴）才算，隨機的 slug（YouTube id 之類）不會誤判。
+  // 網址最後一段長得像編號（/videos/nsps-994/、…/NSPS-994-uncensored）就取出來當編號：
+  // 要整段都是編號（可帶 -xxx 後綴）才算，隨機的 slug（YouTube id 之類）不會誤判。
   function codeFromUrl(u) {
     try {
       const segs = new URL(u).pathname.split('/').filter(Boolean);
@@ -235,11 +235,11 @@
   function paintList(body) {
     const tools = el('div', 'vd-tools');
     const fl = [];
-    if (filter.actor) fl.push(['actor', '演員：' + filter.actor]);
+    if (filter.actor) fl.push(['actor', '人物：' + filter.actor]);
     if (filter.tag) fl.push(['tag', '#' + filter.tag]);
     if (filter.lang) fl.push(['lang', '語言：' + filter.lang]);
     tools.innerHTML =
-      '<div class="search-box vd-search"><input type="search" placeholder="搜尋標題、番號、演員、標籤…" value="' + esc(query) + '" aria-label="搜尋影片"></div>' +
+      '<div class="search-box vd-search"><input type="search" placeholder="搜尋標題、編號、人物、標籤…" value="' + esc(query) + '" aria-label="搜尋影片"></div>' +
       '<select class="vd-sort" aria-label="排序">' +
       [['added', '最近新增'], ['watched', '最近看過'], ['count', '看最多次'], ['title', '標題']].map(function (s) { return '<option value="' + s[0] + '"' + (sort === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') +
       '</select>' +
@@ -357,7 +357,7 @@
   document.addEventListener('mousedown', function (e) { if (menuEl && !e.target.closest('.vd-menu')) closeMenu(); }, true);
 
   // ---------------- 對話框：新增／查看／編輯一部影片 ----------------
-  // 晶片輸入（演員、hashtag）：晶片區 + 一個「固定不換」的 input。第一版每次重畫都連 input 一起
+  // 晶片輸入（人物、hashtag）：晶片區 + 一個「固定不換」的 input。第一版每次重畫都連 input 一起
   // 換掉，焦點一離開（blur）又重畫一次——Chrome 在移除有焦點的元素時發 blur，處理函式裡再改
   // innerHTML 就炸 NotFoundError，而且焦點跑掉：測試裡 hashtag 打完接著點備註，備註的字全進了
   // hashtag。現在只重畫晶片那一段，input 永遠是同一個元素。逗號也可能是用 IME／貼上進來的
@@ -441,9 +441,9 @@
       (isNew ? '' : '<div class="vd-watches"></div>') +
       '</div>' +
       '<div class="vd-m-right">' +
-      '<label class="vd-f"><span class="vd-f-l">番號</span><input class="tt-input vd-m-code" type="text" value="' + esc(model.code) + '" placeholder="例如 ABC-123" maxlength="60" spellcheck="false"></label>' +
-      '<label class="vd-f"><span class="vd-f-l">片名</span><input class="tt-input vd-m-movietitle" type="text" value="' + esc(model.movieTitle) + '" placeholder="影片完整標題…" maxlength="300" spellcheck="false"></label>' +
-      '<div class="vd-f"><span class="vd-f-l">演員</span><div class="vd-chips vd-chips-in vd-m-actors"></div></div>' +
+      '<label class="vd-f"><span class="vd-f-l">編號</span><input class="tt-input vd-m-code" type="text" value="' + esc(model.code) + '" placeholder="例如 ABC-123" maxlength="60" spellcheck="false"></label>' +
+      '<label class="vd-f"><span class="vd-f-l">全名</span><input class="tt-input vd-m-movietitle" type="text" value="' + esc(model.movieTitle) + '" placeholder="影片完整標題…" maxlength="300" spellcheck="false"></label>' +
+      '<div class="vd-f"><span class="vd-f-l">人物</span><div class="vd-chips vd-chips-in vd-m-actors"></div></div>' +
       '<label class="vd-f"><span class="vd-f-l">語言</span><input class="tt-input vd-m-lang" type="text" list="vd-dl-lang" value="' + esc(model.lang) + '" placeholder="日文／中文／英文…" maxlength="30"><datalist id="vd-dl-lang">' + allLangs().map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist></label>' +
       '<label class="vd-f"><span class="vd-f-l">字幕</span><input class="tt-input vd-m-subtitle" type="text" list="vd-dl-subtitle" value="' + esc(model.subtitle) + '" placeholder="繁中字幕／無字幕…" maxlength="30"><datalist id="vd-dl-subtitle">' + SUBTITLES.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('') + '</datalist></label>' +
       '<div class="vd-f"><span class="vd-f-l">hashtag</span><div class="vd-chips vd-chips-in vd-m-tags"></div></div>' +
@@ -480,7 +480,7 @@
     q('.vd-m-subtitle').addEventListener('input', function (e) { apply({ subtitle: e.target.value.trim() }); });
     q('.vd-m-subtitle').addEventListener('change', function (e) { apply({ subtitle: e.target.value.trim() }); });
     q('.vd-m-notes').addEventListener('input', function (e) { apply({ notes: e.target.value }); });
-    const actorsChip = chipInput(q('.vd-m-actors'), model.actors, { key: 'actors', cls: 'is-actor', placeholder: '演員，Enter 加一個（可多個）', suggest: allActors(), onChange: function (v) { apply({ actors: v }); } });
+    const actorsChip = chipInput(q('.vd-m-actors'), model.actors, { key: 'actors', cls: 'is-actor', placeholder: '人物，Enter 加一個（可多個）', suggest: allActors(), onChange: function (v) { apply({ actors: v }); } });
     chipInput(q('.vd-m-tags'), model.tags, { key: 'tags', cls: 'is-tag', prefix: '#', placeholder: '#hashtag，Enter 加一個', suggest: allTags(), onChange: function (v) { apply({ tags: v }); } });
 
     // 網址：貼上／輸入後自動抓預覽（600 ms 沒再動才抓）；按「抓預覽」強制重抓
@@ -508,24 +508,24 @@
         if (pv && !pv.image) pv.image = ytThumb(u);
         const t = q('.vd-m-title');
         if (pv && pv.title && !t.value.trim()) t.value = pv.title;
-        // 番號從網址補：欄位還空著就填；標題也還空著（預覽抓不到）就先用番號當標題
-        // 伺服器查到的番號（JavDB 的正規寫法）優先，沒有才從網址切
+        // 編號從網址補：欄位還空著就填；標題也還空著（預覽抓不到）就先用編號當標題
+        // 伺服器查到的編號（外部資料庫 的正規寫法）優先，沒有才從網址切
         const code = (!failed && str(info.code, 60).trim()) || codeFromUrl(u);
         const codeIn = q('.vd-m-code');
         const fill = {};
         if (code && !codeIn.value.trim()) { codeIn.value = code; fill.code = code; }
         if (code && !t.value.trim()) t.value = code;
-        // 片名：伺服器從 JavDB 查到的 movieTitle 優先，沒有才用頁面標題（欄位還空著才填）
+        // 全名：伺服器從 外部資料庫 查到的 movieTitle 優先，沒有才用頁面標題（欄位還空著才填）
         const movieTitleIn = q('.vd-m-movietitle');
         const mt = !failed ? str(info.movieTitle || info.title, 300).trim() : '';
         if (mt && !movieTitleIn.value.trim()) { movieTitleIn.value = mt; fill.movieTitle = mt; }
-        // 演員從 JSON-LD 補（晶片還空著才填）
+        // 人物從 JSON-LD 補（晶片還空著才填）
         if (!failed && info.actors && info.actors.length && !actorsChip.get().length) {
           actorsChip.set(info.actors.slice(0, 10));
           fill.actors = actorsChip.get();
         }
         apply(Object.assign({ url: u, preview: pv && (pv.title || pv.image || pv.description) ? pv : null }, fill));
-        // 抓失敗就靜默，番號已從網址自動補齊；不把伺服器錯誤顯示在輸入框附近
+        // 抓失敗就靜默，編號已從網址自動補齊；不把伺服器錯誤顯示在輸入框附近
         modal.pvError = failed || (pv && !(pv.title || pv.image || pv.description));
         paintPreview(); paintPlayer();
       });
@@ -617,7 +617,7 @@
     if (modal && modal.note && modal.note.id === note.id) { const s = modal.overlay.querySelector('.vd-m-status'); if (s) s.textContent = '已儲存'; }
   }
 
-  // ---------------- 關聯圖：影片—演員—標籤 ----------------
+  // ---------------- 關聯圖：影片—人物—標籤 ----------------
   function buildGraph(list) {
     const nodes = [], byIdx = {}, edges = [], seen = {};
     function node(id, kind, label, note) { if (!byIdx[id]) { byIdx[id] = { id: id, kind: kind, label: label, note: note || null, deg: 0 }; nodes.push(byIdx[id]); } return byIdx[id]; }
@@ -639,9 +639,9 @@
       container: box,
       data: buildGraph(notes()),
       title: '影片關聯圖',
-      hint: '點一下看關聯・雙擊開影片或依演員／hashtag 篩選・拖曳、滾輪縮放',
-      legend: [['is-video', '影片'], ['is-actor', '演員'], ['is-tag', 'hashtag']],
-      emptyText: '還沒有影片，或影片都還沒填演員與 hashtag。',
+      hint: '點一下看關聯・雙擊開影片或依人物／hashtag 篩選・拖曳、滾輪縮放',
+      legend: [['is-video', '影片'], ['is-actor', '人物'], ['is-tag', 'hashtag']],
+      emptyText: '還沒有影片，或影片都還沒填人物與 hashtag。',
       closeLabel: '回清單',
       showLabels: true,
       onOpenNode: function (n) {
@@ -703,7 +703,7 @@
     const maxM = s.months.reduce(function (a, b) { return Math.max(a, b.n); }, 0) || 1;
     wrap.innerHTML =
       '<div class="vd-tiles">' +
-      [['影片', s.videos, '部'], ['總觀看', s.total, '次'], ['本月觀看', s.thisMonth, '次'], ['演員', s.actorCount, '位'], ['hashtag', s.tagCount, '個'], ['還沒看的', s.unwatched, '部']].map(function (t) {
+      [['影片', s.videos, '部'], ['總觀看', s.total, '次'], ['本月觀看', s.thisMonth, '次'], ['人物', s.actorCount, '位'], ['hashtag', s.tagCount, '個'], ['還沒看的', s.unwatched, '部']].map(function (t) {
         return '<div class="vd-tile"><span class="vd-tile-l">' + t[0] + '</span><span class="vd-tile-v">' + t[1] + '<small>' + t[2] + '</small></span></div>';
       }).join('') + '</div>' +
       '<section class="vd-st-sec vd-st-wide"><h3>每月觀看次數（近 12 個月）</h3>' +
@@ -712,8 +712,8 @@
       }).join('') + '</div></section>' +
       '<div class="vd-st-grid">' +
       barList('最常看的影片', s.topVideos, function (r) { return r.m.watches.length; }, function (r) { return r.n.title; }, function (r) { return 'data-id="' + esc(r.n.id) + '"'; }, '次') +
-      barList('演員：影片數', s.actorsByVideos, function (r) { return r.videos; }, function (r) { return r.name; }, function (r) { return 'data-actor="' + esc(r.name) + '"'; }, '部') +
-      barList('演員：觀看次數', s.actorsByWatches, function (r) { return r.watches; }, function (r) { return r.name; }, function (r) { return 'data-actor="' + esc(r.name) + '"'; }, '次') +
+      barList('人物：影片數', s.actorsByVideos, function (r) { return r.videos; }, function (r) { return r.name; }, function (r) { return 'data-actor="' + esc(r.name) + '"'; }, '部') +
+      barList('人物：觀看次數', s.actorsByWatches, function (r) { return r.watches; }, function (r) { return r.name; }, function (r) { return 'data-actor="' + esc(r.name) + '"'; }, '次') +
       barList('hashtag', s.tagsByVideos, function (r) { return r.videos; }, function (r) { return '#' + r.name; }, function (r) { return 'data-tag="' + esc(r.name) + '"'; }, '部') +
       barList('語言', s.langs, function (r) { return r.videos; }, function (r) { return r.name; }, function (r) { return r.name === '未填' ? '' : 'data-lang="' + esc(r.name) + '"'; }, '部') +
       '<section class="vd-st-sec"><h3>最近觀看</h3>' + (s.recent.length ? '<ul class="vd-recent">' + s.recent.map(function (e) { return '<li data-id="' + esc(e.n.id) + '"><span class="vd-recent-t">' + esc(fmtStamp(e.s)) + '</span><span class="vd-recent-n">' + esc(e.n.title) + '</span></li>'; }).join('') + '</ul>' : '<div class="vd-st-none">還沒有觀看紀錄</div>') + '</section>' +
@@ -734,7 +734,7 @@
     return '<div class="vds-card">' +
       '<div class="vds-row">' + (m.code ? '<span class="vds-code">' + esc(m.code) + '</span>' : '') + (m.lang ? '<span class="vds-lang">' + esc(m.lang) + '</span>' : '') + '<span class="vds-n">看過 ' + m.watches.length + ' 次</span></div>' +
       (m.url ? '<div class="vds-url"><a href="' + esc(m.url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.url) + '</a></div>' : '') +
-      (m.actors.length ? '<div class="vds-row">演員：' + m.actors.map(esc).join('、') + '</div>' : '') +
+      (m.actors.length ? '<div class="vds-row">人物：' + m.actors.map(esc).join('、') + '</div>' : '') +
       (m.tags.length ? '<div class="vds-row">' + m.tags.map(function (t) { return '<span class="vds-tag">#' + esc(t) + '</span>'; }).join(' ') + '</div>' : '') +
       (m.notes ? '<div class="vds-notes">' + esc(m.notes) + '</div>' : '') +
       '</div>';
