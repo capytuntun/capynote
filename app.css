@@ -6232,6 +6232,9 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 .vd-chip.is-actor { background: rgba(217, 122, 156, .16); color: #b4476f; }
 .vd-chip.is-tag { background: var(--accent-weak); color: var(--accent); }
 .vd-chip:hover { filter: brightness(.94); }
+/* 還沒查核過的人物：只在編輯欄位裡以灰色「查核中」出現，卡片／人物誌／關聯圖都不顯示 */
+.vd-chip.is-pending { background: var(--bg-3); color: var(--text-faint); border: 1px dashed var(--border-strong); }
+.vd-chip-pend { margin-left: 4px; font-style: normal; font-size: 10px; opacity: .8; }
 :root[data-theme="dark"] .vd-chip.is-actor { color: #f0a4c0; }
 .vd-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: var(--fs-xs); color: var(--text-faint); }
 /* 縮圖右下角：語言、字幕兩個標籤（跟左上的編號同一種黑底白字，點一下就依它篩選） */

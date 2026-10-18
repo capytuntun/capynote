@@ -453,10 +453,11 @@ async function person(rawName) {
     const hit = boxes.find(function (b) { return b.aliases.concat([b.name]).some(function (a) { return a.toLowerCase() === lw; }); }) || boxes[0];
     const info = await actorInfo(hit.id, hit.name || want);
     const aliases = info.aliases.concat(hit.aliases, [hit.name]).filter(function (a, i, arr) { return a && arr.indexOf(a) === i; });
+    // known：人物頁真的讀到了（性別才算數）；matched：查的名字就在這個人的別名裡（不是隨便拿第一個）
     return {
       name: info.name || hit.name, image: info.image || hit.image, aliases: aliases.slice(0, 20),
       matched: hit.aliases.concat([hit.name]).some(function (a) { return a.toLowerCase() === lw; }),
-      male: info.male
+      male: info.male, known: info.known
     };
   } catch (e) {
     return { error: failReason(e) };
@@ -609,17 +610,26 @@ async function preview(raw, o) {
       } catch (_) {}
     }
     // 網址帶編號：頁面自己沒給的全名／人物／縮圖用 外部資料庫 補
+    let jd = null;
     if (code) {
-      try {
-        const jd = await lookupByCode(code);
-        if (jd) {
-          if (!info.movieTitle) info.movieTitle = jd.movieTitle;
-          // 資料庫查到的人物優先：名字已是繁體中文、還帶大頭照；頁面自己的 JSON-LD 多半是日文
-          if (jd.actors.length) { info.actors = jd.actors; info.people = jd.people; }
-          if (!info.image) info.image = jd.image;
-          info.code = jd.code;
-        }
-      } catch (_) {}
+      try { jd = await lookupByCode(code); } catch (_) { jd = null; }
+      if (jd) {
+        if (!info.movieTitle) info.movieTitle = jd.movieTitle;
+        if (!info.image) info.image = jd.image;
+        info.code = jd.code;
+      }
+    }
+    // 人物一律要經過資料庫驗證（只收女性）：資料庫依編號查到的人物已經驗過；頁面自己 JSON-LD 給的
+    // 名字則一個一個用名字去查，查不到、對不上、男性的都丟掉。驗不過就寧可沒有人物。
+    if (jd && jd.people.length) { info.actors = jd.actors; info.people = jd.people; }
+    else if (noCache) {   // 影片庫才驗；一般連結卡片不顯示人物，照舊
+      const checked = await Promise.all(info.actors.slice(0, 8).map(function (nm) { return person(nm).catch(function () { return null; }); }));
+      info.people = []; info.actors = [];
+      checked.forEach(function (p) {
+        if (!p || p.error || !p.known || !p.matched || p.male || !p.name) return;
+        if (info.actors.indexOf(p.name) >= 0) return;
+        info.actors.push(p.name); info.people.push({ name: p.name, image: p.image });
+      });
     }
     value = Object.assign({ url: key, finalUrl: r.url.toString() }, info);
     keep(value, OK_TTL);

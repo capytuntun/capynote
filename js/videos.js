@@ -189,6 +189,15 @@
   function allActors() { const s = {}; notes().forEach(function (n) { modelOf(n).actors.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
   function allTags() { const s = {}; notes().forEach(function (n) { modelOf(n).tags.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
   function allLangs() { const s = {}; LANGS.forEach(function (l) { s[l] = 1; }); notes().forEach(function (n) { const l = modelOf(n).lang; if (l) s[l] = 1; }); return Object.keys(s); }
+  // 嚴格規則：人物要「查過資料庫、確定是女性」（verified，記在那個人任一部影片裡）才算存在——
+  // 卡片的晶片、人物誌、關聯圖、統計都只看 verified 的；還沒驗過的只在編輯欄位裡以「查核中」出現，
+  // 驗出男性或查不到就從所有影片拿掉（ensureAvatars）。
+  function verifiedKeys() {
+    const vk = {};
+    notes().forEach(function (n) { const v = modelOf(n).verified; Object.keys(v).forEach(function (k) { vk[k.toLowerCase()] = true; }); });
+    return vk;
+  }
+  function shownActors(m, vk) { return m.actors.filter(function (a) { return vk[a.toLowerCase()]; }); }
   // 人物誌的資料：每個出現過的人物一筆（名字以第一次出現的寫法為準），帶影片、觀看次數、照片
   // （外部網址 avatar 與存進系統的 avatarId）、查過沒有（verified）
   function peopleIndex() {
@@ -282,6 +291,10 @@
     else if (view === 'watch') paintWatch(body);
     else paintList(body);
     ensureStored();   // 還是外部網址的縮圖／照片在背景存進系統
+    if (view === 'list' || view === 'watch' || view === 'stats') ensureAvatars(function (p, info, changed) {
+      // 人物誌／關聯圖自己掛了更新；這幾頁驗出結果就重畫一次（卡片的晶片、統計的排行會變）
+      if (changed || (info && !info.error)) refresh();
+    });
 
     head.querySelector('.vd-add').addEventListener('click', function () { openModal(null); });
     head.querySelector('.vd-batch').addEventListener('click', function () { openBatch(); });
@@ -351,7 +364,9 @@
       if (!rows.length) {
         grid.appendChild(el('div', 'vd-empty', notes().length ? '沒有符合的影片。' : ic('film') + '<p>還沒有影片。貼上一個連結就會自動抓標題與縮圖。</p><button class="btn btn-primary vd-empty-add" type="button">' + ic('plus') + '<span>新增影片</span></button>'));
       }
+      cardVk = verifiedKeys();
       rows.forEach(function (r) { grid.appendChild(makeCard(r.n, r.m)); });
+      cardVk = null;
     }
     body.appendChild(grid);
     const emptyAdd = grid.querySelector('.vd-empty-add');
@@ -384,7 +399,9 @@
     if (grid.classList.contains('vd-tablewrap')) { fillTable(grid, rows); return; }
     grid.innerHTML = '';
     if (!rows.length) grid.appendChild(el('div', 'vd-empty', '沒有符合的影片。'));
+    cardVk = verifiedKeys();
     rows.forEach(function (r) { grid.appendChild(makeCard(r.n, r.m)); });
+    cardVk = null;
   }
   // 清單裡代表這部影片的那一塊（卡片或表格列）換成新的
   function refreshRow(n, m) {
@@ -477,7 +494,12 @@
     notesIn.addEventListener('input', function () { autoGrow(notesIn); setField(n, { notes: notesIn.value }); });
     notesIn.addEventListener('focus', function () { autoGrow(notesIn); });
     notesIn.addEventListener('blur', function () { notesIn.style.height = ''; });
-    const actorsChip = chipInput(q('.vd-t-actors'), m.actors, { key: 'actors-t', cls: 'is-actor', placeholder: '人物', suggest: allActors(), verify: verifyPerson, onChange: function (v) { setField(n, { actors: v }); } });
+    const actorsChip = chipInput(q('.vd-t-actors'), m.actors, {
+      key: 'actors-t', cls: 'is-actor', placeholder: '人物', suggest: allActors(), verify: verifyPerson,
+      pending: function (a) { return !liveModel(n).verified[a] && !verifiedKeys()[a.toLowerCase()]; },
+      onVerified: function (name, v) { const vf = Object.assign({}, liveModel(n).verified); vf[name] = 1; setField(n, { actors: v, verified: vf }); },
+      onChange: function (v) { setField(n, { actors: v }); }
+    });
     chipInput(q('.vd-t-tags'), m.tags, { key: 'tags-t', cls: 'is-tag', prefix: '#', placeholder: '#hashtag', suggest: allTags(), onChange: function (v) { setField(n, { tags: v }); } });
     // 網址：改了就記下來、700 ms 後抓預覽補空欄位；開啟連結的箭頭跟著網址走
     const urlIn = q('.vd-t-url'), openA = q('.vd-t-open');
@@ -527,7 +549,8 @@
       if (code && !m.code) { patch.code = code; codeIn.value = code; }
       const mt = str(info.movieTitle || info.title, 300).trim();
       if (mt && !m.movieTitle) { patch.movieTitle = mt; mtIn.value = mt; }
-      if (Array.isArray(info.actors) && info.actors.length && !m.actors.length) { actorsChip.set(info.actors.slice(0, 10)); patch.actors = actorsChip.get(); }
+      const names = peopleNames(info);
+      if (names.length && !m.actors.length) { actorsChip.set(names.slice(0, 10)); patch.actors = actorsChip.get(); }
       const av = peopleAvatars(info, patch.actors || m.actors);
       if (Object.keys(av).length) patch.avatars = Object.assign({}, m.avatars, av);
       const vf = peopleVerified(info, patch.actors || m.actors);
@@ -558,18 +581,20 @@
     if (m.subtitle) b.push('<button class="vd-badge is-sub" type="button" data-subtitle="' + esc(m.subtitle) + '" title="字幕：' + esc(m.subtitle) + '">' + esc(m.subtitle) + '</button>');
     return b.length ? '<div class="vd-badges">' + b.join('') + '</div>' : '';
   }
+  let cardVk = null;   // 整批畫卡片時共用一份 verifiedKeys()（每張卡各算一次會是 N² 的 parse）
   function makeCard(n, m) {
     const card = el('article', 'vd-card');
     card.setAttribute('data-id', n.id);
     card.tabIndex = 0;
     const lw = lastWatch(m);
+    const actors = shownActors(m, cardVk || verifiedKeys());
     card.innerHTML =
       thumbHTML(m, 'vd-thumb', badgesHTML(m)) +
       (m.code ? '<span class="vd-code">' + esc(m.code) + '</span>' : '') +
       '<span class="vd-count" title="看過 ' + m.watches.length + ' 次">' + ic('eye') + m.watches.length + '</span>' +
       '<div class="vd-cbody">' +
       '<div class="vd-title" title="' + esc(n.title) + '">' + esc(n.title || '未命名影片') + '</div>' +
-      (m.actors.length ? '<div class="vd-chips">' + m.actors.map(function (a) { return '<button class="vd-chip is-actor" type="button" data-actor="' + esc(a) + '">' + ic('user') + esc(a) + '</button>'; }).join('') + '</div>' : '') +
+      (actors.length ? '<div class="vd-chips">' + actors.map(function (a) { return '<button class="vd-chip is-actor" type="button" data-actor="' + esc(a) + '">' + ic('user') + esc(a) + '</button>'; }).join('') + '</div>' : '') +
       (m.tags.length ? '<div class="vd-chips">' + m.tags.map(function (t) { return '<button class="vd-chip is-tag" type="button" data-tag="' + esc(t) + '">#' + esc(t) + '</button>'; }).join('') + '</div>' : '') +
       '<div class="vd-meta">' +
       '<span>' + (lw ? '最近看：' + fmtDay(lw) : '還沒看過') + '</span>' +
@@ -652,7 +677,12 @@
     const chips = wrap.querySelector('.vd-chip-list');
     const input = wrap.querySelector('.vd-chip-in');
     function paintChips() {
-      chips.innerHTML = list.map(function (v, i) { return '<span class="vd-chip ' + (o.cls || '') + '">' + (o.prefix || '') + esc(v) + '<button type="button" class="vd-chip-x" data-i="' + i + '" title="移除">' + ic('x') + '</button></span>'; }).join('');
+      chips.innerHTML = list.map(function (v, i) {
+        const pend = o.pending && o.pending(v);
+        return '<span class="vd-chip ' + (o.cls || '') + (pend ? ' is-pending' : '') + '"' + (pend ? ' title="查核中：還沒確認過的人物不會顯示在卡片、人物誌、關聯圖"' : '') + '>' +
+          (o.prefix || '') + esc(v) + (pend ? '<i class="vd-chip-pend">查核中</i>' : '') +
+          '<button type="button" class="vd-chip-x" data-i="' + i + '" title="移除">' + ic('x') + '</button></span>';
+      }).join('');
     }
     function add(text) {
       let changed = false;
@@ -665,16 +695,20 @@
       });
       return changed;
     }
-    // 收進來先顯示，背景去查：不收的（男性）拿掉，有中文名的換成中文名
+    // 收進來先以「查核中」顯示，背景去查：不收的（男性、查不到、對不上）拿掉；通過的標成 verified
+    // （o.onVerified），有中文名的換成中文名
     function check(s) {
       o.verify(s).then(function (r) {
         const i = list.findIndex(function (v) { return v === s; });
         if (i < 0 || !r) return;
-        if (r.ok === false) { list.splice(i, 1); }
-        else if (r.name && r.name !== s) {
-          if (list.some(function (v, j) { return j !== i && v.toLowerCase() === r.name.toLowerCase(); })) list.splice(i, 1); else list[i] = r.name;
-        } else return;
-        paintChips(); o.onChange(list.slice());
+        if (r.ok === false) { list.splice(i, 1); paintChips(); o.onChange(list.slice()); return; }
+        if (r.ok !== true) { paintChips(); return; }   // 暫時查不到（網路）：留著，之後背景再查
+        let name = s;
+        if (r.name && r.name !== s) {
+          if (list.some(function (v, j) { return j !== i && v.toLowerCase() === r.name.toLowerCase(); })) { list.splice(i, 1); name = ''; } else { list[i] = r.name; name = r.name; }
+        }
+        if (o.onVerified && name) o.onVerified(name, list.slice()); else o.onChange(list.slice());
+        paintChips();
       });
     }
     function commit() {
@@ -776,7 +810,12 @@
     q('.vd-m-subtitle').addEventListener('input', function (e) { apply({ subtitle: e.target.value.trim() }); });
     q('.vd-m-subtitle').addEventListener('change', function (e) { apply({ subtitle: e.target.value.trim() }); });
     q('.vd-m-notes').addEventListener('input', function (e) { apply({ notes: e.target.value }); });
-    const actorsChip = chipInput(q('.vd-m-actors'), model.actors, { key: 'actors', cls: 'is-actor', placeholder: '人物，Enter 加一個（可多個）', suggest: allActors(), verify: verifyPerson, onChange: function (v) { apply({ actors: v }); } });
+    const actorsChip = chipInput(q('.vd-m-actors'), model.actors, {
+      key: 'actors', cls: 'is-actor', placeholder: '人物，Enter 加一個（可多個）', suggest: allActors(), verify: verifyPerson,
+      pending: function (a) { return !model.verified[a] && !verifiedKeys()[a.toLowerCase()]; },
+      onVerified: function (name, v) { const vf = Object.assign({}, model.verified); vf[name] = 1; apply({ actors: v, verified: vf }); },
+      onChange: function (v) { apply({ actors: v }); }
+    });
     chipInput(q('.vd-m-tags'), model.tags, { key: 'tags', cls: 'is-tag', prefix: '#', placeholder: '#hashtag，Enter 加一個', suggest: allTags(), onChange: function (v) { apply({ tags: v }); } });
 
     // 網址：貼上／輸入後自動抓預覽（600 ms 沒再動才抓）；按「抓預覽」強制重抓
@@ -815,9 +854,11 @@
         const movieTitleIn = q('.vd-m-movietitle');
         const mt = !failed ? str(info.movieTitle || info.title, 300).trim() : '';
         if (mt && !movieTitleIn.value.trim()) { movieTitleIn.value = mt; fill.movieTitle = mt; }
-        // 人物從伺服器補（晶片還空著才填）；大頭照不管晶片是誰填的，名字對得上就收
-        if (!failed && info.actors && info.actors.length && !actorsChip.get().length) {
-          actorsChip.set(info.actors.slice(0, 10));
+        // 人物從伺服器補（晶片還空著才填）：只收 people 裡的——那是資料庫驗過的女性；大頭照不管
+        // 晶片是誰填的，名字對得上就收
+        const verifiedNames = peopleNames(info);
+        if (!failed && verifiedNames.length && !actorsChip.get().length) {
+          actorsChip.set(verifiedNames.slice(0, 10));
           fill.actors = actorsChip.get();
         }
         if (!failed) {
@@ -1034,7 +1075,7 @@
         m.movieTitle = it.name || (!noPv ? str(info.movieTitle || info.title, 300).trim() : '');
         m.lang = it.lang;
         m.subtitle = it.subtitle;
-        m.actors = !noPv && Array.isArray(info.actors) ? cleanList(info.actors, 10, 60) : [];
+        m.actors = !noPv ? cleanList(peopleNames(info), 10, 60) : [];
         if (!noPv) { m.avatars = peopleAvatars(info, m.actors); m.verified = peopleVerified(info, m.actors); }
         if (!noPv) {
           const pv = { title: str(info.title, 200), description: str(info.description, 300), image: safeUrl(info.image), site: str(info.siteName, 80) };
@@ -1161,6 +1202,11 @@
   }
 
   // ---------------- 人物的大頭照 ----------------
+  // 伺服器預覽回來的人物只認 people（資料庫驗過的女性），不看 actors
+  function peopleNames(info) {
+    if (!info || info.error || !Array.isArray(info.people)) return [];
+    return info.people.map(function (p) { return p && typeof p === 'object' ? String(p.name || '').trim() : ''; }).filter(Boolean);
+  }
   // 伺服器預覽回來的 people: [{name, image}] → 這部影片的 avatars（只收名字在人物清單裡的）
   function peopleAvatars(info, actors) {
     const out = {};
@@ -1201,16 +1247,18 @@
         while (host) {
           const todo = peopleIndex().filter(function (p) { return (!p.avatar || !p.verified) && !avatarMiss[p.key]; });
           if (!todo.length) break;
-          // 沒照片的先，驗過身分但缺照片的跟沒驗過的一樣要問
-          todo.sort(function (a, b) { return (a.avatar ? 1 : 0) - (b.avatar ? 1 : 0); });
+          // 沒驗過的先（它們在畫面上是隱藏的），再來是驗過但缺照片的
+          todo.sort(function (a, b) { return (a.verified ? 1 : 0) - (b.verified ? 1 : 0); });
           const p = todo[0];
           let info = null;
           try { info = await O.onPerson(p.name); } catch (e) { info = null; }
           if (!host) break;
-          if (!info || info.error) { avatarMiss[p.key] = true; if (avatarWatch) avatarWatch(p, info || { error: '查不到' }, false); continue; }
-          if (info.male) {
+          const r = judge(p.name, info);
+          if (r.ok === null) { avatarMiss[p.key] = true; if (avatarWatch) avatarWatch(p, info || { error: '查不到' }, false); continue; }
+          if (r.ok === false) {
+            // 嚴格：男性、查不到、對不上 → 從所有影片拿掉（還沒驗過的本來就沒顯示，拿掉不會閃）
             removePerson(p.key, p.name);
-            toast('「' + p.name + '」是男性人物，已從所有影片拿掉');
+            toast(r.why.replace(/，不收$/, '') + '，已從所有影片拿掉');
             if (avatarWatch) avatarWatch(p, info, true);
             continue;
           }
@@ -1269,15 +1317,24 @@
     });
     if (modal && modal.overlay) { const chips = modal.overlay.querySelector('.vd-m-actors'); if (chips && chips._chip) chips._chip.set(modal.model.actors); }
   }
-  // 晶片輸入收到一個人物名時的檢查（chipInput 的 verify）：男性不收、有中文名就換成中文名
+  // 晶片輸入收到一個人物名時的檢查（chipInput 的 verify），嚴格版：資料庫查不到、名字對不上、
+  // 人物頁讀不到、男性 → 一律不收；通過的回中文名。網路暫時失敗回 { ok: null }（留著，之後背景再查）
+  function judge(name, info) {
+    if (!info) return { ok: null };
+    if (info.error) return /查不到/.test(info.error) ? { ok: false, why: '資料庫查不到「' + name + '」，無法確認，不收' } : { ok: null };
+    if (info.male) return { ok: false, why: '「' + name + '」是男性人物，不收' };
+    if (!info.known) return { ok: null };
+    if (!info.matched) return { ok: false, why: '「' + name + '」在資料庫裡對不到人，不收' };
+    const nm = typeof info.name === 'string' && info.name.trim() ? info.name.trim().slice(0, 60) : name;
+    return { ok: true, name: nm };
+  }
   function verifyPerson(name) {
-    if (!O || !O.onPerson) return Promise.resolve({ ok: true });
+    if (!O || !O.onPerson) return Promise.resolve({ ok: null });
     return O.onPerson(name).then(function (info) {
-      if (!info || info.error) return { ok: true };
-      if (info.male) { toast('「' + name + '」是男性人物，不收'); return { ok: false }; }
-      const nm = info.matched && typeof info.name === 'string' && info.name.trim() ? info.name.trim().slice(0, 60) : name;
-      return { ok: true, name: nm };
-    }, function () { return { ok: true }; });
+      const r = judge(name, info);
+      if (r.ok === false) toast(r.why);
+      return r;
+    }, function () { return { ok: null }; });
   }
 
   // 把還是外部網址的縮圖／大頭照存進系統（一次一張，背景跑）：之後顯示從 /api/images 拿，不再每次抓
@@ -1352,36 +1409,42 @@
     });
   }
   function paintPeople(body) {
-    const people = peopleIndex();
+    const all = peopleIndex();
+    const people = all.filter(function (p) { return p.verified; });
+    const unverified = all.length - people.length;
     const tools = el('div', 'vd-tools');
     tools.innerHTML =
       '<div class="search-box vd-search"><input type="search" placeholder="搜尋人物…" value="' + esc(peopleQuery) + '" aria-label="搜尋人物"></div>' +
       '<span class="vd-people-n">' + people.length + ' 位</span><span class="vd-people-st"></span>';
-    if (people.length) body.appendChild(tools);
+    if (all.length) body.appendChild(tools);
     const grid = el('div', 'vd-people');
     body.appendChild(grid);
     const st = tools.querySelector('.vd-people-st');
+    function statusText() {
+      const idx = peopleIndex();
+      const pend = idx.filter(function (x) { return !x.verified && !avatarMiss[x.key]; }).length;
+      const missing = idx.filter(function (x) { return x.verified && !x.avatar && !avatarMiss[x.key]; }).length;
+      return (pend ? '查核中 ' + pend + ' 位（確認前不顯示）' : '') + (pend && missing ? '・' : '') + (missing ? '正在找 ' + missing + ' 位的照片…' : '');
+    }
     function fill() {
       grid.innerHTML = '';
       const q = peopleQuery.trim().toLowerCase();
       const rows = people.filter(function (p) { return !q || p.name.toLowerCase().indexOf(q) >= 0; });
-      if (!rows.length) grid.appendChild(el('div', 'vd-empty', people.length ? '沒有符合的人物。' : ic('users') + '<p>還沒有人物。影片填了人物就會自動出現在這裡，照片也會自己找。</p>'));
+      if (!rows.length) grid.appendChild(el('div', 'vd-empty', people.length ? '沒有符合的人物。' : ic('users') + '<p>' + (unverified ? '人物查核中，確認是女性的才會出現。' : '還沒有人物。影片填了人物就會自動出現在這裡，照片也會自己找。') + '</p>'));
       rows.forEach(function (p) { grid.appendChild(personCard(p)); });
-      const missing = people.filter(function (p) { return !p.avatar && !avatarMiss[p.key]; }).length;
-      st.textContent = missing ? '正在找 ' + missing + ' 位的照片…' : '';
+      st.textContent = statusText();
     }
     fill();
     tools.querySelector('input').addEventListener('input', function (e) { peopleQuery = e.target.value; fill(); });
-    ensureAvatars(function (p, info, renamed) {
+    ensureAvatars(function (p, info, changed) {
       if (view !== 'people' || !host) return;
-      // 就地換那一張卡；改了名就整個重算（鍵變了）
-      if (renamed) { paint(); return; }
+      // 拿掉／改名／新驗過一個 → 名單變了，整個重畫；只是照片到了就換那一張卡
+      if (changed || !p.verified) { paint(); return; }
       const fresh = peopleIndex().find(function (x) { return x.key === p.key; });
       const old = grid.querySelector('.vd-person[data-key="' + CSS.escape(p.key) + '"]');
       if (fresh && old && fresh.avatar !== p.avatar) old.replaceWith(personCard(fresh));
       if (fresh) Object.assign(p, fresh);
-      const missing = peopleIndex().filter(function (x) { return !x.avatar && !avatarMiss[x.key]; }).length;
-      st.textContent = missing ? '正在找 ' + missing + ' 位的照片…' : '';
+      st.textContent = statusText();
     });
   }
 
@@ -1390,11 +1453,12 @@
     const nodes = [], byIdx = {}, edges = [], seen = {};
     function node(id, kind, label, note) { if (!byIdx[id]) { byIdx[id] = { id: id, kind: kind, label: label, note: note || null, deg: 0 }; nodes.push(byIdx[id]); } return byIdx[id]; }
     function edge(a, b, kind) { const k = a + '|' + b; if (seen[k]) return; seen[k] = true; edges.push({ a: a, b: b, kind: kind }); byIdx[a].deg++; byIdx[b].deg++; }
+    const vk = verifiedKeys();
     list.forEach(function (n) {
       const m = modelOf(n);
       const v = node('v:' + n.id, 'video', n.title || '未命名影片', n);
       v.watches = m.watches.length;
-      m.actors.forEach(function (a) {
+      shownActors(m, vk).forEach(function (a) {
         const an = node('a:' + a.toLowerCase(), 'actor', a);
         // 人物節點帶大頭照（graph.js 畫成圓形照片）：存進系統的優先，沒有才走代理
         if (!an.image && m.avatars[a]) an.image = srcOf(m.avatars[a], m.avatarIds[a]);
@@ -1440,10 +1504,11 @@
     const now = new Date();
     const mkeys = [];
     for (let i = 11; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); const k = d.getFullYear() + '-' + pad(d.getMonth() + 1); mkeys.push(k); months[k] = 0; }
+    const vk = verifiedKeys();
     const rows = list.map(function (n) {
       const m = modelOf(n);
       total += m.watches.length;
-      m.actors.forEach(function (a) { const k = a.toLowerCase(); actors[k] = actors[k] || { name: a, videos: 0, watches: 0 }; actors[k].videos++; actors[k].watches += m.watches.length; });
+      shownActors(m, vk).forEach(function (a) { const k = a.toLowerCase(); actors[k] = actors[k] || { name: a, videos: 0, watches: 0 }; actors[k].videos++; actors[k].watches += m.watches.length; });
       m.tags.forEach(function (t) { const k = t.toLowerCase(); tags[k] = tags[k] || { name: t, videos: 0, watches: 0 }; tags[k].videos++; tags[k].watches += m.watches.length; });
       const l = m.lang || '未填';
       langs[l] = langs[l] || { name: l, videos: 0, watches: 0 }; langs[l].videos++; langs[l].watches += m.watches.length;
@@ -1517,7 +1582,7 @@
     return '<div class="vds-card">' +
       '<div class="vds-row">' + (m.code ? '<span class="vds-code">' + esc(m.code) + '</span>' : '') + (m.lang ? '<span class="vds-lang">' + esc(m.lang) + '</span>' : '') + (m.subtitle ? '<span class="vds-lang">' + esc(m.subtitle) + '</span>' : '') + '<span class="vds-n">看過 ' + m.watches.length + ' 次</span></div>' +
       (m.url ? '<div class="vds-url"><a href="' + esc(m.url) + '" target="_blank" rel="noopener noreferrer">' + esc(m.url) + '</a></div>' : '') +
-      (m.actors.length ? '<div class="vds-row">人物：' + m.actors.map(esc).join('、') + '</div>' : '') +
+      (m.actors.some(function (a) { return m.verified[a]; }) ? '<div class="vds-row">人物：' + m.actors.filter(function (a) { return m.verified[a]; }).map(esc).join('、') + '</div>' : '') +
       (m.tags.length ? '<div class="vds-row">' + m.tags.map(function (t) { return '<span class="vds-tag">#' + esc(t) + '</span>'; }).join(' ') + '</div>' : '') +
       (m.notes ? '<div class="vds-notes">' + esc(m.notes) + '</div>' : '') +
       '</div>';

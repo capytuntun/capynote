@@ -179,7 +179,9 @@ function uploadHeaders(row, length) {
   const mime = String(row.mime || '').toLowerCase();
   const headers = {
     'Content-Length': length,
-    'Cache-Control': 'private, no-cache',
+    // 一般上傳可能被標註改寫（同一個 id 換內容），所以 no-cache；影片庫存進系統的圖（hidden）
+    // 從不改寫——換照片是換 id——瀏覽器可以放心存一年，卡片重畫就不用再抓一次
+    'Cache-Control': row.hidden ? 'private, max-age=31536000, immutable' : 'private, no-cache',
     'X-Content-Type-Options': 'nosniff'
   };
   if (INLINE_UPLOAD.test(mime)) {
