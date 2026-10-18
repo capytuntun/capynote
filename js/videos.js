@@ -28,6 +28,7 @@
 
   const FENCE = /```video[^\n]*\n([\s\S]*?)\n```/;
   const LANGS = ['日文', '中文', '英文', '韓文', '無對白', '其他'];
+  const SUBTITLES = ['無字幕', '繁中字幕', '簡中字幕', '英文字幕', '多語字幕', '自製字幕'];
   const LS_SORT = 'strikenote.vdSort';
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -61,7 +62,7 @@
 
   function isNote(n) { return !!(n && n.meta && n.meta.video); }
   function payloadOf(text) { const m = FENCE.exec(String(text || '')); return m ? m[1] : ''; }
-  function blank() { return { url: '', code: '', movieTitle: '', actors: [], lang: '', tags: [], watches: [], notes: '', added: today(), preview: null }; }
+  function blank() { return { url: '', code: '', movieTitle: '', actors: [], lang: '', subtitle: '', tags: [], watches: [], notes: '', added: today(), preview: null }; }
   function parse(text) {
     let raw = null;
     try { raw = JSON.parse(payloadOf(text) || 'null'); } catch (e) { raw = null; }
@@ -72,6 +73,7 @@
     m.movieTitle = str(raw.movieTitle, 300).trim();
     m.actors = cleanList(raw.actors, 30, 60);
     m.lang = str(raw.lang, 30).trim();
+    m.subtitle = str(raw.subtitle, 30).trim();
     m.tags = cleanList(raw.tags, 40, 40, true);
     m.watches = (Array.isArray(raw.watches) ? raw.watches : []).filter(function (s) { return typeof s === 'string' && STAMP.test(s); }).slice(0, 5000).sort();
     m.notes = str(raw.notes, 5000);
@@ -407,7 +409,17 @@
     // datalist 選了一項也算（Chrome 對選取項發 change 不發 keydown）
     input.addEventListener('change', function () { if (input.value.trim()) commit(); });
     input.addEventListener('blur', function () { if (input.value.trim()) commit(); });
-    return { get: function () { return list.slice(); } };
+    return {
+      get: function () { return list.slice(); },
+      set: function (vals) {
+        list.length = 0;
+        (Array.isArray(vals) ? vals : []).forEach(function (v) {
+          const s = String(v || '').trim();
+          if (s && list.indexOf(s) < 0) list.push(s);
+        });
+        paintChips();
+      }
+    };
   }
 
   function openModal(note) {
@@ -433,6 +445,7 @@
       '<label class="vd-f"><span class="vd-f-l">片名</span><input class="tt-input vd-m-movietitle" type="text" value="' + esc(model.movieTitle) + '" placeholder="影片完整標題…" maxlength="300" spellcheck="false"></label>' +
       '<div class="vd-f"><span class="vd-f-l">演員</span><div class="vd-chips vd-chips-in vd-m-actors"></div></div>' +
       '<label class="vd-f"><span class="vd-f-l">語言</span><input class="tt-input vd-m-lang" type="text" list="vd-dl-lang" value="' + esc(model.lang) + '" placeholder="日文／中文／英文…" maxlength="30"><datalist id="vd-dl-lang">' + allLangs().map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist></label>' +
+      '<label class="vd-f"><span class="vd-f-l">字幕</span><input class="tt-input vd-m-subtitle" type="text" list="vd-dl-subtitle" value="' + esc(model.subtitle) + '" placeholder="繁中字幕／無字幕…" maxlength="30"><datalist id="vd-dl-subtitle">' + SUBTITLES.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('') + '</datalist></label>' +
       '<div class="vd-f"><span class="vd-f-l">hashtag</span><div class="vd-chips vd-chips-in vd-m-tags"></div></div>' +
       '<label class="vd-f"><span class="vd-f-l">備註</span><textarea class="tt-input vd-m-notes" rows="4" placeholder="想記的東西…" maxlength="5000">' + esc(model.notes) + '</textarea></label>' +
       '<div class="vd-f vd-f-added"><span class="vd-f-l">新增於</span><span>' + esc(fmtDay(model.added)) + (note && note.updatedAt ? '・最後修改 ' + new Date(note.updatedAt).toLocaleDateString('zh-TW') : '') + '</span></div>' +
@@ -464,8 +477,10 @@
     q('.vd-m-movietitle').addEventListener('input', function (e) { apply({ movieTitle: e.target.value }); });
     q('.vd-m-lang').addEventListener('input', function (e) { apply({ lang: e.target.value.trim() }); });
     q('.vd-m-lang').addEventListener('change', function (e) { apply({ lang: e.target.value.trim() }); });
+    q('.vd-m-subtitle').addEventListener('input', function (e) { apply({ subtitle: e.target.value.trim() }); });
+    q('.vd-m-subtitle').addEventListener('change', function (e) { apply({ subtitle: e.target.value.trim() }); });
     q('.vd-m-notes').addEventListener('input', function (e) { apply({ notes: e.target.value }); });
-    chipInput(q('.vd-m-actors'), model.actors, { key: 'actors', cls: 'is-actor', placeholder: '演員，Enter 加一個（可多個）', suggest: allActors(), onChange: function (v) { apply({ actors: v }); } });
+    const actorsChip = chipInput(q('.vd-m-actors'), model.actors, { key: 'actors', cls: 'is-actor', placeholder: '演員，Enter 加一個（可多個）', suggest: allActors(), onChange: function (v) { apply({ actors: v }); } });
     chipInput(q('.vd-m-tags'), model.tags, { key: 'tags', cls: 'is-tag', prefix: '#', placeholder: '#hashtag，Enter 加一個', suggest: allTags(), onChange: function (v) { apply({ tags: v }); } });
 
     // 網址：貼上／輸入後自動抓預覽（600 ms 沒再動才抓）；按「抓預覽」強制重抓
@@ -499,6 +514,14 @@
         const fill = {};
         if (code && !codeIn.value.trim()) { codeIn.value = code; fill.code = code; }
         if (code && !t.value.trim()) t.value = code;
+        // 片名從預覽補（欄位還空著才填）
+        const movieTitleIn = q('.vd-m-movietitle');
+        if (!failed && info.title && !movieTitleIn.value.trim()) { movieTitleIn.value = info.title; fill.movieTitle = info.title; }
+        // 演員從 JSON-LD 補（晶片還空著才填）
+        if (!failed && info.actors && info.actors.length && !actorsChip.get().length) {
+          actorsChip.set(info.actors.slice(0, 10));
+          fill.actors = actorsChip.get();
+        }
         apply(Object.assign({ url: u, preview: pv && (pv.title || pv.image || pv.description) ? pv : null }, fill));
         // 抓失敗就靜默，番號已從網址自動補齊；不把伺服器錯誤顯示在輸入框附近
         modal.pvError = failed || (pv && !(pv.title || pv.image || pv.description));

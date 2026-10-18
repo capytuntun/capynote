@@ -270,14 +270,70 @@ function extract(html, base) {
       return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null;
     } catch (e) { return null; }
   };
+  // JSON-LD 演員（VideoObject／Movie 的 actor 屬性）
+  const actors = [];
+  const ldRe = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  while ((m = ldRe.exec(html))) {
+    try {
+      const data = JSON.parse(m[1].trim());
+      const items = [].concat(Array.isArray(data) ? data : [data]);
+      for (let k = 0; k < items.length; k++) {
+        const item = items[k];
+        if (!item) continue;
+        const t = String(item['@type'] || '').toLowerCase();
+        if (t !== 'videoobject' && t !== 'movie') continue;
+        const rawA = item.actor || [];
+        [].concat(Array.isArray(rawA) ? rawA : [rawA]).forEach(function (a) {
+          const name = (a && typeof a === 'object') ? String(a.name || '').trim() : String(a || '').trim();
+          if (name && actors.indexOf(name) < 0) actors.push(name);
+        });
+        if (actors.length) break;
+      }
+    } catch (_) {}
+    if (actors.length) break;
+  }
   return {
     title: clip(text(meta['og:title'] || meta['twitter:title'] || (titleM && titleM[1])), 200),
     description: clip(text(meta['og:description'] || meta['twitter:description'] || meta.description), 300),
     siteName: clip(text(meta['og:site_name'] || meta['application-name']), 80),
     image: abs(meta['og:image:secure_url'] || meta['og:image'] || meta['og:image:url'] ||
                meta['twitter:image'] || meta['twitter:image:src']),
-    icon: abs(icon || '/favicon.ico')
+    icon: abs(icon || '/favicon.ico'),
+    actors: actors.slice(0, 20)
   };
+}
+
+// 從 Plyr.js 的 data-plyr-config 屬性裡找 previewThumbnails.src（VTT 路徑）
+function extractPlyrVtt(html) {
+  const m = /data-plyr-config\s*=\s*(?:'([^']{0,4096})'|"([^"]{0,4096})")/i.exec(html);
+  if (!m) return null;
+  try {
+    const raw = decodeEntities(m[1] != null ? m[1] : m[2]);
+    const cfg = JSON.parse(raw);
+    const src = cfg && cfg.previewThumbnails && cfg.previewThumbnails.src;
+    return typeof src === 'string' && src ? src : null;
+  } catch (_) { return null; }
+}
+
+// 抓 VTT 檔，取出第一張 sprite 圖片的 URL（去掉 #xywh= 片段）
+async function fetchPlyrThumb(vttRel, base, signal) {
+  let vttAbs;
+  try { vttAbs = new URL(vttRel, base).toString(); } catch (_) { return null; }
+  const vttTarget = parseTarget(vttAbs);
+  if (!vttTarget) return null;
+  const vr = await fetchLimited(vttTarget, {
+    accept: 'text/vtt,text/plain,*/*;q=0.8',
+    maxBytes: 64 * 1024, truncate: true
+  }, signal, 0);
+  for (const line of vr.body.toString('utf-8').split('\n')) {
+    const t = line.trim();
+    if (/^https?:\/\//.test(t)) {
+      const imgUrl = t.replace(/#.*$/, '');  // 去掉 #xywh=x,y,w,h
+      const imgTarget = parseTarget(imgUrl);
+      if (imgTarget) return imgTarget.toString();
+    }
+  }
+  return null;
 }
 
 // Site-specific thumbnail guessers for Cloudflare-blocked sites.
@@ -285,6 +341,18 @@ function extract(html, base) {
 function guessThumbnail(u) {
   const host = u.hostname.replace(/^www\./, '');
   const segs = u.pathname.split('/').filter(Boolean);
+
+  // jable.tv：試從 assets-cdn 取 plyr__preview-scrubbing 的 preview.jpg
+  // CDN 通常不在 CF 的 JS challenge 後面
+  if (host === 'jable.tv') {
+    for (let i = Math.max(0, segs.length - 2); i < segs.length; i++) {
+      let seg;
+      try { seg = decodeURIComponent(segs[i]).toLowerCase(); } catch (_) { seg = segs[i].toLowerCase(); }
+      if (/^[a-z]{2,8}-\d{1,5}/.test(seg)) {
+        return 'https://assets-cdn.jable.tv/contents/videos_screenshots/' + seg + '/preview.jpg';
+      }
+    }
+  }
 
   // 日系 AV 番號（英文字母 2-8 碼 + 數字 1-5 位）→ DMM 公開封面 CDN，不受 CF 保護
   // 格式：pics.dmm.co.jp/digital/video/{alpha}{num5}/{alpha}{num5}ps.jpg
@@ -345,7 +413,15 @@ async function preview(raw) {
       if (!(e && /回應 (403|429|503)/.test(e.message))) throw e;
       r = await fetchLimited(target, Object.assign({}, opts, { ua: BROWSER_UA }), AbortSignal.timeout(DEADLINE_MS), 0);
     }
-    const info = extract(decodeHtml(r.body, r.headers['content-type']), r.url);
+    const html = decodeHtml(r.body, r.headers['content-type']);
+    const info = extract(html, r.url);
+    // 有 Plyr preview-scrubbing 的 VTT → 抓第一張 sprite 當縮圖（og:image 優先）
+    if (!info.image) {
+      const vttRel = extractPlyrVtt(html);
+      if (vttRel) {
+        try { info.image = await fetchPlyrThumb(vttRel, r.url, AbortSignal.timeout(5000)); } catch (_) {}
+      }
+    }
     value = Object.assign({ url: key, finalUrl: r.url.toString() }, info);
     remember(key, value, OK_TTL);
   } catch (e) {
