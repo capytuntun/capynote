@@ -37,6 +37,7 @@
   const LANGS = ['日文', '中文', '英文', '韓文', '無對白', '其他'];
   const SUBTITLES = ['無字幕', '繁中字幕', '簡中字幕', '英文字幕', '多語字幕', '自製字幕'];
   const LS_SORT = 'strikenote.vdSort';
+  const LS_MODE = 'strikenote.vdMode';   // 清單的顯示方式：cards | table
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function ic(name) { return global.Icons ? Icons.svg(name) : ''; }
@@ -141,6 +142,8 @@
   let peopleQuery = '';
   let filter = { actor: null, tag: null, lang: null, subtitle: null };
   let sort = (function () { try { return localStorage.getItem(LS_SORT) || 'added'; } catch (e) { return 'added'; } })();
+  let listMode = (function () { try { return localStorage.getItem(LS_MODE) === 'table' ? 'table' : 'cards'; } catch (e) { return 'cards'; } })();
+  let pendingPaint = false;            // 表格有格子在打字時延後的整頁重畫
   let modal = null;                    // { overlay, note, model, draft }
   let graphView = null;
   const saveTimers = new Map();        // note id -> timer
@@ -220,6 +223,8 @@
   function refresh(opts) {
     if (opts) O = opts;
     if (!host || host.hidden) return;
+    // 表格裡正在打字：現在重畫會把字跟焦點弄掉，等焦點離開表格再畫（makeTable 的 focusout）
+    if (document.activeElement && host.contains(document.activeElement) && document.activeElement.closest('.vd-table')) { pendingPaint = true; return; }
     // 對話框開著就只重畫底下的清單（它改的是同一個 note 物件）；關聯圖／統計整頁重算
     paint();
   }
@@ -316,13 +321,24 @@
       '</select>' +
       '<button class="vd-incog' + (incognitoOn() ? ' is-on' : '') + '" type="button" aria-pressed="' + incognitoOn() + '" title="開啟連結時交給無痕視窗（已有無痕視窗就在裡面開新分頁）。要先在這台電腦執行一次 tools/incognito/install.cmd">' + ic('eye-off') + '<span>無痕開啟</span></button>' +
       fl.map(function (f) { return '<button class="vd-filter" type="button" data-clear="' + f[0] + '">' + esc(f[1]) + ic('x') + '</button>'; }).join('');
+    // 卡片／表格：表格是「所有欄位都能直接改」的清單（makeTable）
+    tools.insertAdjacentHTML('beforeend',
+      '<nav class="vd-tabs vd-mode" aria-label="顯示方式">' +
+      [['cards', 'grid', '卡片'], ['table', 'table', '表格']].map(function (t) {
+        return '<button class="vd-tab' + (listMode === t[0] ? ' is-active' : '') + '" type="button" data-mode="' + t[0] + '" aria-pressed="' + (listMode === t[0]) + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
+      }).join('') + '</nav>');
     if (notes().length) body.appendChild(tools);   // 一部影片都還沒有：搜尋與排序沒東西可搜，只留空狀態
-    const grid = el('div', 'vd-grid');
     const rows = sorted(notes().filter(matches));
-    if (!rows.length) {
-      grid.appendChild(el('div', 'vd-empty', notes().length ? '沒有符合的影片。' : ic('film') + '<p>還沒有影片。貼上一個連結就會自動抓標題與縮圖。</p><button class="btn btn-primary vd-empty-add" type="button">' + ic('plus') + '<span>新增影片</span></button>'));
+    let grid;
+    if (listMode === 'table' && notes().length) {
+      grid = makeTable(rows);
+    } else {
+      grid = el('div', 'vd-grid');
+      if (!rows.length) {
+        grid.appendChild(el('div', 'vd-empty', notes().length ? '沒有符合的影片。' : ic('film') + '<p>還沒有影片。貼上一個連結就會自動抓標題與縮圖。</p><button class="btn btn-primary vd-empty-add" type="button">' + ic('plus') + '<span>新增影片</span></button>'));
+      }
+      rows.forEach(function (r) { grid.appendChild(makeCard(r.n, r.m)); });
     }
-    rows.forEach(function (r) { grid.appendChild(makeCard(r.n, r.m)); });
     body.appendChild(grid);
     const emptyAdd = grid.querySelector('.vd-empty-add');
     if (emptyAdd) emptyAdd.addEventListener('click', function () { openModal(null); });
@@ -330,6 +346,13 @@
     const input = tools.querySelector('input');
     input.addEventListener('input', function () { query = input.value; repaintGrid(grid); });
     tools.querySelector('.vd-sort').addEventListener('change', function (e) { sort = e.target.value; try { localStorage.setItem(LS_SORT, sort); } catch (x) { /* ignore */ } repaintGrid(grid); });
+    tools.querySelector('.vd-mode').addEventListener('click', function (e) {
+      const b = e.target.closest('[data-mode]');
+      if (!b || b.getAttribute('data-mode') === listMode) return;
+      listMode = b.getAttribute('data-mode');
+      try { localStorage.setItem(LS_MODE, listMode); } catch (x) { /* ignore */ }
+      paint();
+    });
     tools.querySelector('.vd-incog').addEventListener('click', function (e) {
       const on = !incognitoOn();
       setIncognito(on);
@@ -343,10 +366,162 @@
     });
   }
   function repaintGrid(grid) {
-    grid.innerHTML = '';
     const rows = sorted(notes().filter(matches));
+    if (grid.classList.contains('vd-tablewrap')) { fillTable(grid, rows); return; }
+    grid.innerHTML = '';
     if (!rows.length) grid.appendChild(el('div', 'vd-empty', '沒有符合的影片。'));
     rows.forEach(function (r) { grid.appendChild(makeCard(r.n, r.m)); });
+  }
+  // 清單裡代表這部影片的那一塊（卡片或表格列）換成新的
+  function refreshRow(n, m) {
+    if (!host || view !== 'list') return;
+    const card = host.querySelector('.vd-card[data-id="' + n.id + '"]');
+    if (card) { card.replaceWith(makeCard(n, m)); return; }
+    const row = host.querySelector('.vd-row[data-id="' + n.id + '"]');
+    if (row && !row.contains(document.activeElement)) row.replaceWith(makeRow(n, m));
+    else if (row) { const c = row.querySelector('.vd-t-count'); if (c) c.textContent = m.watches.length; }
+  }
+
+  // ---------------- 表格：每一格直接改，改了 600 ms 後自動存 ----------------
+  // 一列一部影片：縮圖、標題、網址、編號、全名、人物、語言、字幕、hashtag、備註、看過、更多。
+  // 每個 input 的 input 事件 → setField()：重新 parse 這部的 model、改那個欄位、write()、排存檔。
+  // 人物與 hashtag 用同一個 chipInput（緊湊版樣式）。網址改了跟對話框一樣 700 ms 後抓預覽，
+  // 把還空著的編號／全名／人物／照片／縮圖補進去（已經填的不動）。表格上有格子正在打字時，
+  // refresh() 不整頁重畫（會把正在打的字跟焦點弄掉），記下來等焦點離開表格再畫。
+  const COLS = [['thumb', ''], ['title', '標題'], ['url', '網址'], ['code', '編號'], ['movieTitle', '全名'], ['actors', '人物'], ['lang', '語言'], ['subtitle', '字幕'], ['tags', 'hashtag'], ['notes', '備註'], ['watch', '看過'], ['acts', '']];
+  const rowTimers = new Map();   // note id -> 抓預覽的計時器
+  function setField(n, patch, title) {
+    const m = liveModel(n);
+    Object.assign(m, patch || {});
+    write(n, m, title);
+    scheduleSave(n);
+  }
+  function makeTable(rows) {
+    const wrap = el('div', 'vd-tablewrap');
+    wrap.innerHTML =
+      '<table class="vd-table"><colgroup>' + COLS.map(function (c) { return '<col class="vd-col-' + c[0] + '">'; }).join('') + '</colgroup>' +
+      '<thead><tr>' + COLS.map(function (c) { return '<th class="vd-th-' + c[0] + '">' + esc(c[1]) + '</th>'; }).join('') + '</tr></thead><tbody></tbody></table>' +
+      '<datalist id="vd-dl-lang-t">' + allLangs().map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist>' +
+      '<datalist id="vd-dl-subtitle-t">' + SUBTITLES.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('') + '</datalist>' +
+      '<div class="vd-table-foot"><button class="btn vd-table-add" type="button">' + ic('plus') + '<span>新增一列</span></button><span class="vd-table-n"></span></div>';
+    fillTable(wrap, rows);
+    wrap.querySelector('.vd-table-add').addEventListener('click', function (e) {
+      const btn = e.currentTarget; btn.disabled = true;
+      O.onCreate({ title: '未命名影片', content: generate(blank()) }).then(function (n) {
+        // onCreate 那邊已經 refreshViews → 整頁重畫；找到新的那一列，游標放到網址格
+        btn.disabled = false;
+        const row = n && host && host.querySelector('.vd-row[data-id="' + n.id + '"]');
+        if (row) { const u = row.querySelector('.vd-t-url'); if (u) u.focus(); row.scrollIntoView({ block: 'nearest' }); }
+      }, function () { btn.disabled = false; });
+    });
+    wrap.addEventListener('focusout', function () {
+      setTimeout(function () {
+        if (pendingPaint && !(document.activeElement && document.activeElement.closest('.vd-table'))) { pendingPaint = false; paint(); }
+      }, 0);
+    });
+    return wrap;
+  }
+  function fillTable(wrap, rows) {
+    const tb = wrap.querySelector('tbody');
+    tb.innerHTML = '';
+    if (!rows.length) tb.innerHTML = '<tr class="vd-row-empty"><td colspan="' + COLS.length + '">沒有符合的影片。</td></tr>';
+    rows.forEach(function (r) { tb.appendChild(makeRow(r.n, r.m)); });
+    const nEl = wrap.querySelector('.vd-table-n');
+    if (nEl) nEl.textContent = rows.length + ' 部';
+  }
+  function autoGrow(ta) { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; }
+  function makeRow(n, m) {
+    const tr = el('tr', 'vd-row');
+    tr.setAttribute('data-id', n.id);
+    tr.innerHTML =
+      '<td class="vd-td-thumb">' + thumbHTML(m, 'vd-t-thumb') + '</td>' +
+      '<td><input class="vd-t-in vd-t-title" type="text" value="' + esc(n.title) + '" placeholder="標題" maxlength="300" spellcheck="false"></td>' +
+      '<td class="vd-td-url"><input class="vd-t-in vd-t-url" type="url" value="' + esc(m.url) + '" placeholder="貼上連結…" spellcheck="false" autocomplete="off">' +
+      '<a class="icon-btn vd-t-open vd-open" href="' + esc(m.url || '#') + '" target="_blank" rel="noopener noreferrer" title="開啟連結"' + (m.url ? '' : ' hidden') + '>' + ic('external-link') + '</a></td>' +
+      '<td><input class="vd-t-in vd-t-code" type="text" value="' + esc(m.code) + '" placeholder="ABC-123" maxlength="60" spellcheck="false"></td>' +
+      '<td><input class="vd-t-in vd-t-movietitle" type="text" value="' + esc(m.movieTitle) + '" placeholder="全名" maxlength="300" spellcheck="false"></td>' +
+      '<td><div class="vd-chips vd-chips-in vd-t-chips vd-t-actors"></div></td>' +
+      '<td><input class="vd-t-in vd-t-lang" type="text" list="vd-dl-lang-t" value="' + esc(m.lang) + '" placeholder="語言" maxlength="30"></td>' +
+      '<td><input class="vd-t-in vd-t-subtitle" type="text" list="vd-dl-subtitle-t" value="' + esc(m.subtitle) + '" placeholder="字幕" maxlength="30"></td>' +
+      '<td><div class="vd-chips vd-chips-in vd-t-chips vd-t-tags"></div></td>' +
+      '<td><textarea class="vd-t-in vd-t-notes" rows="1" placeholder="備註" maxlength="5000">' + esc(m.notes) + '</textarea></td>' +
+      '<td class="vd-td-watch"><span class="vd-t-count">' + m.watches.length + '</span><button class="icon-btn vd-t-watch" type="button" title="看過一次就按一次">' + ic('plus') + '</button></td>' +
+      '<td class="vd-td-acts"><button class="icon-btn vd-t-more" type="button" title="更多">' + ic('more-horizontal') + '</button></td>';
+    const q = function (s) { return tr.querySelector(s); };
+    const on = function (sel, field, trim) {
+      const inp = q(sel);
+      const h = function () { const p = {}; p[field] = trim ? inp.value.trim() : inp.value; setField(n, p); };
+      inp.addEventListener('input', h);
+      inp.addEventListener('change', h);   // datalist 選項（Chrome 只發 change）
+    };
+    q('.vd-t-title').addEventListener('input', function (e) { setField(n, null, e.target.value); });
+    on('.vd-t-code', 'code', true);
+    on('.vd-t-movietitle', 'movieTitle', false);
+    on('.vd-t-lang', 'lang', true);
+    on('.vd-t-subtitle', 'subtitle', true);
+    const notesIn = q('.vd-t-notes');
+    notesIn.addEventListener('input', function () { autoGrow(notesIn); setField(n, { notes: notesIn.value }); });
+    notesIn.addEventListener('focus', function () { autoGrow(notesIn); });
+    notesIn.addEventListener('blur', function () { notesIn.style.height = ''; });
+    const actorsChip = chipInput(q('.vd-t-actors'), m.actors, { key: 'actors-t', cls: 'is-actor', placeholder: '人物', suggest: allActors(), onChange: function (v) { setField(n, { actors: v }); } });
+    chipInput(q('.vd-t-tags'), m.tags, { key: 'tags-t', cls: 'is-tag', prefix: '#', placeholder: '#hashtag', suggest: allTags(), onChange: function (v) { setField(n, { tags: v }); } });
+    // 網址：改了就記下來、700 ms 後抓預覽補空欄位；開啟連結的箭頭跟著網址走
+    const urlIn = q('.vd-t-url'), openA = q('.vd-t-open');
+    urlIn.addEventListener('input', function () {
+      const u = safeUrl(urlIn.value);
+      const cur = liveModel(n);
+      setField(n, { url: u, preview: u === cur.url ? cur.preview : null });
+      openA.href = u || '#'; openA.hidden = !u;
+      if (rowTimers.has(n.id)) clearTimeout(rowTimers.get(n.id));
+      if (u && O.onPreview) rowTimers.set(n.id, setTimeout(function () { rowTimers.delete(n.id); rowPreview(n, u, tr, actorsChip); }, 700));
+    });
+    urlIn.addEventListener('paste', function () { setTimeout(function () { urlIn.dispatchEvent(new Event('input', { bubbles: true })); }, 0); });
+    tr.addEventListener('click', function (e) {
+      let b;
+      if ((b = e.target.closest('a.vd-open'))) { if (incognitoOn() && openIncognito(b.href)) e.preventDefault(); return; }
+      if (e.target.closest('.vd-t-watch')) { addWatch(n); return; }
+      if ((b = e.target.closest('.vd-t-more'))) { const r = b.getBoundingClientRect(); cardMenu(n, r.left, r.bottom + 4); return; }
+      if (e.target.closest('.vd-t-thumb')) { openModal(n); }
+    });
+    tr.addEventListener('contextmenu', function (e) { if (e.target.closest('input, textarea')) return; e.preventDefault(); cardMenu(n, e.clientX, e.clientY); });
+    // Enter：往下一列的同一格（Shift+Enter 往上）；textarea 裡 Enter 照常換行
+    tr.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.isComposing || e.target.tagName === 'TEXTAREA' || e.target.classList.contains('vd-chip-in')) return;
+      const td = e.target.closest('td'); if (!td) return;
+      const idx = Array.prototype.indexOf.call(tr.children, td);
+      const next = e.shiftKey ? tr.previousElementSibling : tr.nextElementSibling;
+      if (!next || !next.children[idx]) return;
+      const target = next.children[idx].querySelector('input, textarea');
+      if (target) { e.preventDefault(); target.focus(); if (target.select) target.select(); }
+    });
+    return tr;
+  }
+  // 表格列的網址抓預覽：補還空著的欄位（跟對話框的 fetchPreview 同一套規則）
+  function rowPreview(n, u, tr, actorsChip) {
+    tr.classList.add('is-fetching');
+    O.onPreview(u).then(function (info) {
+      tr.classList.remove('is-fetching');
+      if (!tr.isConnected || liveModel(n).url !== u) return;
+      if (!info || info.error) return;
+      const m = liveModel(n);
+      const patch = {};
+      const pv = { title: str(info.title, 200), description: str(info.description, 300), image: safeUrl(info.image), site: str(info.siteName, 80) };
+      if (!pv.image) pv.image = ytThumb(u);
+      patch.preview = (pv.title || pv.image || pv.description) ? pv : null;
+      const code = str(info.code, 60).trim() || codeFromUrl(u);
+      const codeIn = tr.querySelector('.vd-t-code'), mtIn = tr.querySelector('.vd-t-movietitle'), titleIn = tr.querySelector('.vd-t-title');
+      if (code && !m.code) { patch.code = code; codeIn.value = code; }
+      const mt = str(info.movieTitle || info.title, 300).trim();
+      if (mt && !m.movieTitle) { patch.movieTitle = mt; mtIn.value = mt; }
+      if (Array.isArray(info.actors) && info.actors.length && !m.actors.length) { actorsChip.set(info.actors.slice(0, 10)); patch.actors = actorsChip.get(); }
+      const av = peopleAvatars(info, patch.actors || m.actors);
+      if (Object.keys(av).length) patch.avatars = Object.assign({}, m.avatars, av);
+      let title;
+      if (!n.title || n.title === '未命名影片') { title = mt || pv.title || code || n.title; titleIn.value = title; }
+      setField(n, patch, title);
+      const th = tr.querySelector('.vd-td-thumb');
+      if (th) th.innerHTML = thumbHTML(liveModel(n), 'vd-t-thumb');
+    });
   }
   function thumbHTML(m, cls, extra) {
     const t = thumbOf(m);
@@ -421,10 +596,7 @@
     write(n, m);
     if (O.onSave) O.onSave(n);
     toast('已記一次：共看過 ' + m.watches.length + ' 次');
-    if (view === 'list' && host) {
-      const card = host.querySelector('.vd-card[data-id="' + n.id + '"]');
-      if (card) card.replaceWith(makeCard(n, m));
-    }
+    refreshRow(n, m);
     if (modal && modal.note === n) paintWatches();
   }
 
@@ -554,11 +726,7 @@
       syncCard();
     }
     function status(t) { const s = q('.vd-m-status'); if (s) s.textContent = t || ''; }
-    function syncCard() {
-      if (!host || view !== 'list' || !note) return;
-      const card = host.querySelector('.vd-card[data-id="' + note.id + '"]');
-      if (card) card.replaceWith(makeCard(note, model));
-    }
+    function syncCard() { if (note) refreshRow(note, model); }
     q('.vd-m-title').addEventListener('input', function () { apply(); });
     q('.vd-m-code').addEventListener('input', function (e) { apply({ code: e.target.value.trim() }); });
     q('.vd-m-movietitle').addEventListener('input', function (e) { apply({ movieTitle: e.target.value }); });
@@ -695,8 +863,7 @@
       write(modal.note, mm);
       if (O.onSave) O.onSave(modal.note);
       paintWatches();
-      const card = host && host.querySelector('.vd-card[data-id="' + modal.note.id + '"]');
-      if (card) card.replaceWith(makeCard(modal.note, mm));
+      refreshRow(modal.note, mm);
     });
   }
   function closeModal(flush) {

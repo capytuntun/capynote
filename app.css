@@ -6328,6 +6328,48 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 [data-theme="dark"] .vd-bt-list li.is-warn .vd-bt-st { color: #e0a24a; }
 [data-theme="dark"] .vd-bt-list li.is-fail .vd-bt-st { color: #ef7b7b; }
 
+/* 表格模式：一列一部、每格直接改（js/videos.js makeTable／makeRow）。外框自己橫向捲動，表頭黏住 */
+.vd-mode { margin-left: 0; }
+.vd-tablewrap { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); overflow: auto; max-width: 100%; }
+.vd-table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1480px; table-layout: fixed; font-size: var(--fs-sm); }
+.vd-table th { position: sticky; top: 0; z-index: 1; padding: 8px 8px; border-bottom: 1px solid var(--border-strong); background: var(--bg-2); color: var(--text-dim); font-size: var(--fs-xs); font-weight: 700; text-align: left; white-space: nowrap; }
+.vd-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.vd-row:hover td { background: var(--row-hover); }
+.vd-row.is-fetching .vd-t-thumb { opacity: .5; }
+.vd-col-thumb { width: 84px; } .vd-col-title { width: 200px; } .vd-col-url { width: 260px; } .vd-col-code { width: 110px; } .vd-col-movieTitle { width: 260px; }
+.vd-col-actors { width: 220px; } .vd-col-lang { width: 90px; } .vd-col-subtitle { width: 110px; } .vd-col-tags { width: 200px; } .vd-col-notes { width: 240px; }
+.vd-col-watch { width: 72px; } .vd-col-acts { width: 44px; }
+.vd-td-thumb { padding-left: 8px; }
+.vd-t-thumb { position: relative; display: block; width: 68px; aspect-ratio: 16 / 9; border-radius: 4px; background: var(--bg-3); overflow: hidden; cursor: pointer; }
+.vd-t-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.vd-t-thumb.is-empty .vd-thumb-ph { display: flex; }
+.vd-t-thumb .vd-thumb-ph .ic-svg { width: 18px; height: 18px; }
+.vd-t-in { width: 100%; min-height: 30px; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); outline: none; }
+.vd-t-in:hover { border-color: var(--border); }
+.vd-t-in:focus { border-color: var(--accent); background: var(--bg); box-shadow: 0 0 0 3px var(--accent-ring); }
+.vd-t-in::placeholder { color: var(--text-faint); }
+.vd-t-title { font-weight: 600; }
+.vd-t-code { font-family: var(--mono, ui-monospace, monospace); }
+textarea.vd-t-in { display: block; resize: none; line-height: 1.4; height: 30px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+textarea.vd-t-in:focus { white-space: pre-wrap; overflow: auto; }
+.vd-td-url { position: relative; }
+.vd-td-url .vd-t-in { padding-right: 30px; }
+.vd-t-open { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; opacity: .6; }
+.vd-row:hover .vd-t-open, .vd-t-open:focus-visible { opacity: 1; }
+/* 緊湊版晶片格：沒有外框，滑過／對焦才出現，跟其他格一致 */
+.vd-t-chips { min-height: 30px; padding: 2px 4px; border-color: transparent; background: transparent; gap: 3px; }
+.vd-t-chips:hover { border-color: var(--border); }
+.vd-t-chips:focus-within { background: var(--bg); }
+.vd-t-chips .vd-chip { height: 20px; font-size: 11px; }
+.vd-t-chips .vd-chip-in { flex: 1 1 60px; min-width: 50px; height: 22px; font-size: var(--fs-sm); }
+.vd-td-watch { white-space: nowrap; }
+.vd-t-count { display: inline-block; min-width: 20px; margin-right: 2px; font-weight: 700; text-align: right; }
+.vd-t-watch, .vd-t-more { width: 26px; height: 26px; vertical-align: middle; }
+.vd-row-empty td { padding: 32px; text-align: center; color: var(--text-dim); }
+.vd-table-foot { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-top: 1px solid var(--border); background: var(--bg-2); font-size: var(--fs-xs); color: var(--text-dim); }
+.vd-table-foot .btn { flex: 0 0 auto; padding: 4px 10px; font-size: var(--fs-xs); }
+.vd-table-foot .btn .ic-svg { width: 13px; height: 13px; }
+
 /* 人物誌：每位出現過的人物一張卡（大頭照、名字、部數／次數），點一下依人物篩選清單 */
 .vd-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; max-width: 1400px; }
 .vd-people-n { font-size: var(--fs-sm); color: var(--text-dim); }
