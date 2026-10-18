@@ -233,6 +233,8 @@ async function exportZip(user, scope, req, res) {
     });
     // drawio 的圖示庫：有標記才寫，沒有的就跟以前的備份長得一樣
     if (img.icon) filesIndex[filesIndex.length - 1].icon = true;
+    // 影片庫存進系統的圖：還原後一樣不能跑到檔案管理裡
+    if (img.hidden) filesIndex[filesIndex.length - 1].hidden = true;
   }
   await addJson('files.json', filesIndex);
 
@@ -597,6 +599,7 @@ async function runRestore(job, user, up, opts) {
       }
       // 圖示庫的標記跟著回來（只會加，不會因為還原一份舊備份就把現在的圖示拿掉）
       if (f.icon === true) await q.setImageIcon.run(1, f.id, owner);
+      if (f.hidden === true) await q.setImageHidden.run(1, f.id, owner);
     }
 
     // ---- notes, their versions and shares ----

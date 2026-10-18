@@ -785,9 +785,12 @@ async function deleteNote(user, id, purge) {
   if (!canRead(perm)) return { status: 404 };
   if (perm !== 'owner') return { status: 403, error: '只有擁有者可以刪除筆記' };
   if (purge) {
+    // 硬刪：筆記本身之外，它引用的上傳（影片庫存進系統的縮圖／大頭照也在內）沒有別篇在用就一起刪
     const f = fileOfNoteRow(row);
+    const media = mediaOfNoteRow(row);
     await q.deleteNote.run(id);
     await dropFileIfUnused(f);
+    for (const mf of media) await dropFileIfUnused(mf);
     forgetPreviewOf(row);
     return { ok: true, purged: true };
   }
@@ -848,6 +851,15 @@ function fileOfNoteRow(row) {
   try { meta = row && row.meta ? JSON.parse(row.meta) : null; } catch (e) { meta = null; }
   const fid = meta && meta.file && meta.file.id;
   return fid && /^[\w.-]+$/.test(fid) ? { id: fid, ownerId: row.owner_id } : null;
+}
+// 內文裡每一個 img:/pdf:/file: 引用（硬刪一篇時連它存的圖一起清）
+function mediaOfNoteRow(row) {
+  const out = [], seen = {};
+  for (const m of String(row && row.content || '').matchAll(/\b(?:img|pdf|file):([\w-]+(?:\.[\w-]+)*)/g)) {
+    const id = m[1].replace(/[.-]+$/, '');
+    if (id && !seen[id]) { seen[id] = true; out.push({ id: id, ownerId: row.owner_id }); }
+  }
+  return out;
 }
 async function dropFileIfUnused(f) {
   if (!f) return;
@@ -1102,6 +1114,18 @@ async function createImage(user, mime, buf, name, folderId) {
   await q.insertImage.run(id, user.id, String(mime || 'application/octet-stream'), name || null,
     buf, null, null, Date.now(), await resolveFileFolder(user, folderId));
   return { id: id };
+}
+// 影片庫：把一張外部圖片（縮圖、大頭照）抓回來存進系統，之後就不用每次再去抓。走 linkpreview.image
+// 的同一套防護（只准 http(s)、不碰內網、5 MB、只收圖片類型）；存成一般上傳但標 hidden，檔案管理
+// 不列、也不會被當成「未使用」掃掉。回 { id }，呼叫端寫成 img:<id>，所以可見性跟任何上傳一樣。
+async function storeLinkImage(user, url) {
+  const img = await linkpreview.image(url);
+  if (img.error) return { status: 400, error: img.error };
+  let name = 'image';
+  try { name = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() || 'image').slice(0, 120); } catch (e) { /* keep */ }
+  const r = await createImage(user, img.type, img.body, name, null);
+  await q.setImageHidden.run(1, r.id, user.id);
+  return { id: r.id };
 }
 // 檔案管理的重新命名／搬移到資料夾：只動中繼資料，不像 saveImage 那樣要求整包位元組
 // （標註）——連分塊上傳的大檔案也能改名字、搬資料夾，只是不能標註（saveImage 自己擋）。
@@ -1424,7 +1448,7 @@ module.exports = {
   listNoteLinks, createNoteLink, updateNoteLink, deleteNoteLink, publicNote,
   listFolders, createFolder, updateFolder, deleteFolder,
   listFileFolders, createFileFolder, updateFileFolder, deleteFileFolder,
-  createImage, getImage, saveImage, updateFile, deleteImage, listImages, saveOrder,
+  createImage, storeLinkImage, getImage, saveImage, updateFile, deleteImage, listImages, saveOrder,
   listIcons, createIcon, removeIcon, ICON_MAX_BYTES,
   startUpload, putChunk, finishUpload, sweepPendingUploads,
   listShares, addShare, removeShare,

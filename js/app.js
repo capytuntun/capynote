@@ -2034,6 +2034,12 @@
       onPerson: function (name) {
         return Store.lookupPerson(name).then(function (info) { return info || { error: '查不到' }; }, function (e) { return { error: e && e.message || '查不到' }; });
       },
+      // 縮圖／大頭照存進系統：回 img id（之後從 /api/images/<id> 拿，不再每次去抓）；失敗回 null
+      onStoreImage: function (u) {
+        return Store.storeLinkImage(u).then(function (r) { return r && r.id ? r.id : null; }, function () { return null; });
+      },
+      // 不要了的存圖（換照片、人物整個拿掉）直接刪，不留在系統裡
+      onDropImage: function (id) { return Store.deleteImage(id).then(function () { return true; }, function () { return false; }); },
       proxy: function (u) { return '/api/link-preview/image?url=' + encodeURIComponent(u) + '&nocache=1'; }
     };
   }

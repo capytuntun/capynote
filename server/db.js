@@ -352,6 +352,8 @@ const MIGRATIONS = [
   // drawio 的「我的圖示」：這個上傳是不是擁有者的圖示庫裡的一個。只是一個標記——檔案
   // 本身、誰看得到它（筆記內容裡有 img:<id>）都跟其他上傳一樣，見 api.js 的 listIcons。
   ['images', 'icon', 'TINYINT NOT NULL DEFAULT 0'],
+  // 影片庫存進系統的縮圖／大頭照（api.js storeLinkImage）：是上傳沒錯，但不出現在檔案管理
+  ['images', 'hidden', 'TINYINT NOT NULL DEFAULT 0'],
   // 公開連結要不要跟著筆記自動更新（見 api.js 的 note_links 那一段）。預設 1：加這個欄位
   // 之前建立的連結本來就是自動更新的，升級之後行為不能變。
   ['note_links', 'auto_update', 'TINYINT NOT NULL DEFAULT 1']
@@ -629,6 +631,7 @@ const q = {
   // 設，不加進 insertImage 的參數：那一句還有 backup.js 在用，參數多一個少一個就是
   // 「Malformed communication packet」，整個還原失敗（folder_id 那次就發生過）。
   setImageIcon: stmt('UPDATE images SET icon = ? WHERE id = ? AND owner_id = ?'),
+  setImageHidden: stmt('UPDATE images SET hidden = ? WHERE id = ? AND owner_id = ?'),
   iconsOf: stmt(
     'SELECT id, mime, name, created_at, LENGTH(data) AS bytes FROM images ' +
     'WHERE owner_id = ? AND icon = 1 AND pending = 0 ORDER BY created_at, id'),
@@ -652,7 +655,7 @@ const q = {
   // The INSTR filter only trims the scan; listImages does the exact matching.
   imagesOf: stmt(
     'SELECT id, mime, name, folder_id, icon, created_at, COALESCE(size, LENGTH(data)) AS bytes, COALESCE(LENGTH(original), 0) AS original_bytes, ' +
-    '(original IS NOT NULL) AS annotated FROM images WHERE owner_id = ? AND pending = 0 ORDER BY created_at DESC'),
+    '(original IS NOT NULL) AS annotated FROM images WHERE owner_id = ? AND pending = 0 AND hidden = 0 ORDER BY created_at DESC'),
 
   // 檔案管理／雲端硬碟資料夾（file_folders）：跟 notes 的 folders 完全獨立的一棵樹，
   // 純粹整理上傳的檔案，見上面 file_folders 表的註解。

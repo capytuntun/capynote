@@ -688,6 +688,12 @@ async function handleApi(req, res, url) {
     const info = await linkpreview.preview(url.searchParams.get('url'), { noCache: noCache });
     return json(res, 200, info, noCache ? { 'Cache-Control': 'no-store' } : (info.error ? {} : { 'Cache-Control': 'private, max-age=3600' }));
   }
+  // 影片庫：把外部圖片存進系統（之後縮圖／大頭照從 /api/images/<id> 拿，不再每次去抓）
+  if (p === '/api/link-preview/store' && method === 'POST') {
+    if (!config.linkPreview) return json(res, 404, { error: 'not found' });
+    const body = await readJSON(req);
+    return send(await api.storeLinkImage(user, body && body.url));
+  }
   // 用名字找人（影片庫的人物誌／關聯圖大頭照）：固定問外部資料庫，不留快取
   if (p === '/api/link-preview/person' && method === 'GET') {
     if (!config.linkPreview) return json(res, 200, { error: '連結預覽已停用' });
