@@ -6309,6 +6309,7 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 .vd-bt-st { flex: 0 0 120px; font-size: var(--fs-xs); color: var(--text-faint); }
 .vd-bt-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .vd-bt-name { flex: 0 1 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-bt-meta { flex: 0 0 auto; font-size: var(--fs-xs); color: var(--text-faint); white-space: nowrap; }
 .vd-bt-list li.is-busy .vd-bt-st { color: var(--accent); }
 .vd-bt-list li.is-done .vd-bt-st { color: #2e7d32; }
 .vd-bt-list li.is-warn .vd-bt-st { color: #b26a00; }

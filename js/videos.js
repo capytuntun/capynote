@@ -648,24 +648,30 @@
     if (modal && modal.note && modal.note.id === note.id) { const s = modal.overlay.querySelector('.vd-m-status'); if (s) s.textContent = '已儲存'; }
   }
 
-  // ---------------- 批次新增：貼一份「網址 全名」清單 ----------------
-  // 一行一部：`網址` 或 `網址 全名`（空白／Tab／| 分隔，全名放前面也行）。每行依序抓預覽
-  // （一次一個，不去撞伺服器），有給全名就以給的為準、沒給才用抓到的；網址已經在庫裡的跳過；
-  // 抓不到預覽的照建（留網址、從網址切的編號、給的全名），該行會標「沒有預覽」。
+  // ---------------- 批次新增：貼一份「全名,網址,語言,字幕」清單 ----------------
+  // 一行一部，逗號分隔（全形逗號、Tab、| 也算）：`全名,網址,語言,字幕`。網址是定位點：它前面
+  // 的是全名（名字裡有逗號也沒關係，前面幾段全接起來），後面依序是語言、字幕；只給網址也行。
+  // 每行依序抓預覽（一次一個，不去撞伺服器），有給全名就以給的為準、沒給才用抓到的；網址已經
+  // 在庫裡的跳過；抓不到預覽的照建（留網址、從網址切的編號、給的欄位），該行會標「沒有預覽」。
   let batch = null;                    // { overlay, running, cancel }
   function parseBatch(text) {
     const out = [];
     String(text || '').split(/\r?\n/).forEach(function (line) {
       const s = line.trim();
       if (!s || s[0] === '#') return;
-      const parts = s.split(/[\s|]+/).filter(Boolean);
-      let url = '', idx = -1;
-      for (let i = 0; i < parts.length; i++) {
-        if (/^https?:\/\/\S+$/i.test(parts[i]) || /^www\.\S+\.\S+$/i.test(parts[i])) { url = safeUrl(parts[i]); idx = i; break; }
+      const fields = s.split(/[,，\t|]/).map(function (f) { return f.trim(); });
+      let idx = -1;
+      for (let i = 0; i < fields.length; i++) {
+        if (/^https?:\/\/\S+$/i.test(fields[i]) || /^www\.\S+\.\S+$/i.test(fields[i])) { idx = i; break; }
       }
-      if (!url) { out.push({ line: s, url: '', name: '' }); return; }
-      parts.splice(idx, 1);
-      out.push({ line: s, url: url, name: parts.join(' ').replace(/^[\s,，:：-]+|[\s,，]+$/g, '').trim() });
+      if (idx < 0) { out.push({ line: s, url: '', name: '', lang: '', subtitle: '' }); return; }
+      out.push({
+        line: s,
+        url: safeUrl(fields[idx]),
+        name: fields.slice(0, idx).filter(Boolean).join('，').slice(0, 300),
+        lang: (fields[idx + 1] || '').slice(0, 30),
+        subtitle: (fields[idx + 2] || '').slice(0, 30)
+      });
     });
     return out;
   }
@@ -690,8 +696,8 @@
       '<div class="vd-m-head">' + ic('list') + '<span class="vd-bt-title">批次新增影片</span>' +
       '<button class="icon-btn vd-m-close" type="button" title="關閉 (Esc)">' + ic('x') + '</button></div>' +
       '<div class="vd-bt-body">' +
-      '<p class="vd-bt-help">一行一部：<code>網址</code> 或 <code>網址 全名</code>（空白、Tab 或 | 分隔）。有給全名就用你給的，沒給才用抓到的；已經在庫裡的網址會跳過。</p>' +
-      '<textarea class="tt-input vd-bt-in" rows="8" placeholder="https://…/videos/abc-123/\nhttps://…/videos/def-456/  這一部的全名\n…" spellcheck="false"></textarea>' +
+      '<p class="vd-bt-help">一行一部，逗號分隔：<code>全名,網址,語言,字幕</code>。只給網址也可以（全名、人物、縮圖會自己抓）；有給全名就用你給的。已經在庫裡的網址會跳過。</p>' +
+      '<textarea class="tt-input vd-bt-in" rows="8" placeholder="這是一部的全名,https://…/videos/abc-123/,日文,繁體中字\nhttps://…/videos/def-456/\n…" spellcheck="false"></textarea>' +
       '<ol class="vd-bt-list" hidden></ol>' +
       '</div>' +
       '<div class="vd-m-foot"><span class="vd-m-status vd-bt-status"></span><span class="vd-m-sp"></span>' +
@@ -722,8 +728,10 @@
       go.disabled = true; ta.disabled = true; cancelBtn.textContent = '停止';
       list.hidden = false;
       list.innerHTML = items.map(function (it, i) {
+        const meta = [it.lang, it.subtitle].filter(Boolean).join('・');
         return '<li data-i="' + i + '"><span class="vd-bt-st">等待</span><span class="vd-bt-url" title="' + esc(it.url) + '">' + esc(it.url) + '</span>' +
-          (it.name ? '<span class="vd-bt-name" title="' + esc(it.name) + '">' + esc(it.name) + '</span>' : '') + '</li>';
+          (it.name ? '<span class="vd-bt-name" title="' + esc(it.name) + '">' + esc(it.name) + '</span>' : '') +
+          (meta ? '<span class="vd-bt-meta">' + esc(meta) + '</span>' : '') + '</li>';
       }).join('');
       const seen = {};
       notes().forEach(function (n) { const u = modelOf(n).url; if (u) seen[u.replace(/\/+$/, '').toLowerCase()] = true; });
@@ -746,6 +754,8 @@
         m.url = it.url;
         m.code = (!noPv && str(info.code, 60).trim()) || codeFromUrl(it.url);
         m.movieTitle = it.name || (!noPv ? str(info.movieTitle || info.title, 300).trim() : '');
+        m.lang = it.lang;
+        m.subtitle = it.subtitle;
         m.actors = !noPv && Array.isArray(info.actors) ? cleanList(info.actors, 10, 60) : [];
         if (!noPv) {
           const pv = { title: str(info.title, 200), description: str(info.description, 300), image: safeUrl(info.image), site: str(info.siteName, 80) };
