@@ -6428,6 +6428,57 @@ textarea.vd-t-in:focus { white-space: pre-wrap; overflow: auto; }
 .vd-person-last { color: var(--text-faint); }
 :root[data-theme="dark"] .vd-person-ph { color: #f0a4c0; }
 
+/* 對話框：發行日／片長／片商 三個擺一排 */
+.vd-f-row { display: grid; grid-template-columns: 1.2fr .8fr 1.4fr; gap: 10px; }
+.vd-meta-rel { color: var(--text-dim); }
+/* 表格：勾選欄、新欄位、批次列 */
+.vd-col-sel { width: 34px; } .vd-col-released { width: 130px; } .vd-col-duration { width: 72px; } .vd-col-maker { width: 150px; }
+.vd-td-sel { text-align: center; }
+.vd-t-sel, .vd-t-selall { width: 15px; height: 15px; margin: 0; cursor: pointer; vertical-align: middle; }
+.vd-tbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--accent-weak); font-size: var(--fs-sm); }
+.vd-tbar-n { font-weight: 700; color: var(--accent); margin-right: 4px; }
+.vd-tbar-f { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-dim); }
+.vd-tbar-f .tt-input { width: 120px; height: 28px; padding: 2px 8px; font-size: var(--fs-sm); }
+.vd-tbar .btn { flex: 0 0 auto; padding: 4px 10px; font-size: var(--fs-xs); }
+.vd-tbar .btn .ic-svg { width: 13px; height: 13px; }
+.vd-tbar-x { margin-left: auto; width: 26px; height: 26px; }
+/* 觀看紀錄：時間可點可改、補填一筆 */
+.vd-w-back { flex: 0 0 auto; margin-left: auto; padding: 4px 10px; font-size: var(--fs-xs); }
+.vd-w-back .ic-svg { width: 13px; height: 13px; }
+.vd-w-head .vd-w-add { margin-left: 0; }
+.vd-w-backrow { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.vd-w-backrow .tt-input { flex: 1 1 auto; height: 30px; }
+.vd-w-backrow .btn { flex: 0 0 auto; padding: 4px 10px; font-size: var(--fs-xs); }
+.vd-w-time { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; padding: 0 4px; border-radius: 4px; }
+.vd-w-time:hover { background: var(--row-hover); text-decoration: underline dotted; }
+.vd-w-edit { height: 26px; padding: 0 6px; font-size: var(--fs-sm); }
+/* 人物頁別名 */
+.vd-pp-alias { font-size: var(--fs-xs); color: var(--text-faint); }
+/* 分類：hashtag／語言／字幕 的方塊，點了亮起；底下即時顯示符合的影片 */
+.vd-tags { display: flex; flex-direction: column; gap: 18px; }
+.vd-tags-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); font-size: var(--fs-sm); }
+.vd-tags-cur { flex: 1 1 auto; min-width: 0; color: var(--text-dim); }
+.vd-tags-bar .btn { flex: 0 0 auto; padding: 4px 10px; font-size: var(--fs-xs); }
+.vd-tags-bar .btn .ic-svg { width: 13px; height: 13px; }
+.vd-tags-sec h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: var(--fs-sm); font-weight: 700; }
+.vd-tags-sec h3 small { font-weight: 500; color: var(--text-faint); }
+.vd-tags-hint { margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--text-faint); }
+.vd-tag-tiles { display: flex; flex-wrap: wrap; gap: 8px; }
+.vd-tag-tile {
+  display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg); color: var(--text); font: inherit; font-size: var(--fs-sm); cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.vd-tag-tile:hover { border-color: var(--border-strong); background: var(--row-hover); }
+.vd-tag-tile-c { padding: 0 7px; border-radius: 999px; background: var(--bg-3); color: var(--text-dim); font-size: var(--fs-xs); font-weight: 700; }
+.vd-tag-tile.is-tag .vd-tag-tile-n { color: var(--accent); font-weight: 600; }
+.vd-tag-tile.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.vd-tag-tile.is-on .vd-tag-tile-n { color: #fff; }
+.vd-tag-tile.is-on .vd-tag-tile-c { background: rgba(255, 255, 255, .25); color: #fff; }
+.vd-tags-result[hidden] { display: none; }
+/* 快速離開 */
+.vd-panic .ic-svg { color: #c62828; }
+
 /* 人物頁：大照片＋名字＋數字＋動作，底下是她的影片卡片 */
 .vd-pp { display: flex; flex-direction: column; gap: 16px; }
 .vd-pp-head { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 18px 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }

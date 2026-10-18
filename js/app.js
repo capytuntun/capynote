@@ -2026,8 +2026,11 @@
           }, function (e) { toast('刪除失敗：' + (e && e.message || e)); });
         });
       },
-      // 觀察區的連結：不問、直接硬刪（只是個連結）
+      // 快速離開（頁首「離開」／Esc 兩下）：回首頁，showEmpty 會把影片頁拆掉
+      onLeave: function () { goHome(); },
+      // 觀察區的連結、表格批次刪除：不問、直接硬刪
       onDeleteNow: function (n) {
+        try { Videos.dropNoteImages(n); } catch (e) { /* ignore */ }
         return Store.deleteNote(n.id, true).then(function () {
           state.notes = state.notes.filter(function (x) { return x.id !== n.id; });
           refreshViews();

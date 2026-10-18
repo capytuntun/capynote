@@ -396,7 +396,7 @@ function pickImage(u) { return u && /^https:\/\/[^\s"'<>)]+\.(?:jpe?g|png|webp)(
 // 人物頁名字底下那行 section-meta 以這兩個字開頭的是男性（「…, N 部影片」）——影片庫不收男性人物
 const MALE_MARK = String.fromCharCode(0x7537, 0x512a);
 async function actorInfo(id, fallback) {
-  let name = fallback, image = null, aliases = [], male = false, known = false;
+  let name = fallback, image = null, aliases = [], male = false, known = false, works = 0;
   try {
     const t = parseTarget(LOOKUP_BASE + '/actors/' + id);
     if (t) {
@@ -411,9 +411,21 @@ async function actorInfo(id, fallback) {
       const av = /<span class="avatar"[^>]*background-image:\s*url\(\s*['"]?([^'")\s]+)['"]?\s*\)/i.exec(h);
       if (av) image = pickImage(decodeEntities(av[1]));
       male = new RegExp('<span class="section-meta">\\s*' + MALE_MARK).test(h);
+      // 名字底下的 section-meta 之一是「N 部影片」（男性的是「標記, N 部影片」）：作品數
+      let sm; const smRe = /<span class="section-meta">([^<]*)<\/span>/g;
+      while ((sm = smRe.exec(h))) { const w = /(\d{1,6})\s*部/.exec(sm[1]); if (w) { works = Number(w[1]); break; } }
+      // 第二個 section-meta（沒有性別標記的那行）是更多別名
+      smRe.lastIndex = 0;
+      while ((sm = smRe.exec(h))) {
+        const txt = decodeEntities(sm[1]);
+        if (/\d\s*部/.test(txt) || txt.indexOf(MALE_MARK) >= 0) continue;
+        txt.split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (a) { if (aliases.indexOf(a) < 0) aliases.push(a); });
+      }
     }
   } catch (_) { /* 人物頁抓不到就用詳細頁上的名字 */ }
-  return { id: id, name: toTrad(name), image: image, aliases: aliases.map(toTrad), male: male, known: known };
+  const seenA = {};
+  const al = aliases.map(toTrad).filter(function (a) { if (seenA[a]) return false; seenA[a] = true; return true; });
+  return { id: id, name: toTrad(name), image: image, aliases: al, male: male, known: known, works: works };
 }
 async function actorName(id, fallback) { return (await actorInfo(id, fallback)).name; }
 
@@ -457,7 +469,7 @@ async function person(rawName) {
     return {
       name: info.name || hit.name, image: info.image || hit.image, aliases: aliases.slice(0, 20),
       matched: hit.aliases.concat([hit.name]).some(function (a) { return a.toLowerCase() === lw; }),
-      male: info.male, known: info.known
+      male: info.male, known: info.known, works: info.works || 0
     };
   } catch (e) {
     return { error: failReason(e) };
@@ -492,10 +504,11 @@ async function lookupByCode(code) {
     break;
   }
   if (!hit) return null;
-  const out = { code: hit.code, movieTitle: clip(hit.movieTitle, 300), actors: [], people: [], image: hit.image && parseTarget(hit.image) ? hit.image : null };
+  const out = { code: hit.code, movieTitle: clip(hit.movieTitle, 300), actors: [], people: [], image: hit.image && parseTarget(hit.image) ? hit.image : null, tags: [], released: '', duration: 0, maker: '' };
   if (!hit.href) return out;
   // 詳細頁：人物是 panel-block 裡指向 /actors/ 的連結（class="actor-female" 的排前面）；
-  // 不靠欄位的中文標籤定位，找「含 /actors/ 連結的那個 panel-block」就好
+  // 不靠欄位的中文標籤定位，每個 block 都用「連結指向哪裡／值長什麼樣」認：
+  //   /tags? 連結 → 類別（變 hashtag）、/makers/ 連結 → 片商、值是 YYYY-MM-DD → 發行日、值是「N 分…」→ 片長
   try {
     const dTarget = parseTarget(LOOKUP_BASE + hit.href);
     if (!dTarget) return out;
@@ -503,7 +516,23 @@ async function lookupByCode(code) {
     const dh = dr.body.toString('utf-8');
     const panelRe = /<div class="panel-block">([\s\S]*?)<\/div>/g;
     let block = '', pb;
-    while ((pb = panelRe.exec(dh))) { if (/href="\/actors\/[\w-]+"/.test(pb[1])) { block = pb[1]; break; } }
+    const linkText = function (b, hrefRe) {
+      const re = new RegExp('<a[^>]*href="' + hrefRe + '"[^>]*>([^<]+)<\\/a>', 'g'), outl = [];
+      let x;
+      while ((x = re.exec(b))) { const t = decodeEntities(x[1]).trim(); if (t && outl.indexOf(t) < 0) outl.push(t); }
+      return outl;
+    };
+    while ((pb = panelRe.exec(dh))) {
+      const b = pb[1];
+      if (!block && /href="\/actors\/[\w-]+"/.test(b)) { block = b; continue; }
+      if (!out.tags.length && /href="\/tags\?/.test(b)) { out.tags = linkText(b, '\\/tags\\?[^"]*').slice(0, 20); continue; }
+      if (!out.maker && /href="\/makers\//.test(b)) { out.maker = clip(linkText(b, '\\/makers\\/[^"]*')[0] || '', 120); continue; }
+      const val = (/<span class="value">\s*([^<]*?)\s*<\/span>/.exec(b) || [])[1];
+      if (!val) continue;
+      const v = decodeEntities(val).trim();
+      if (!out.released && /^\d{4}-\d{2}-\d{2}$/.test(v)) out.released = v;
+      else if (!out.duration && /^\d{1,4}\s*分/.test(v)) out.duration = Number(/^\d{1,4}/.exec(v)[0]);
+    }
     const aRe = /<a([^>]*)href="\/actors\/([\w-]+)"[^>]*>([^<]+)<\/a>/g;
     const female = [];
     let a;
@@ -617,6 +646,7 @@ async function preview(raw, o) {
         if (!info.movieTitle) info.movieTitle = jd.movieTitle;
         if (!info.image) info.image = jd.image;
         info.code = jd.code;
+        info.tags = jd.tags; info.released = jd.released; info.duration = jd.duration; info.maker = jd.maker;
       }
     }
     // 人物一律要經過資料庫驗證（只收女性）：資料庫依編號查到的人物已經驗過；頁面自己 JSON-LD 給的
@@ -640,7 +670,7 @@ async function preview(raw, o) {
       let jd = null;
       try { jd = await lookupByCode(code); } catch (_) {}
       if (jd && (jd.movieTitle || jd.image)) {
-        value = { url: key, title: jd.movieTitle, movieTitle: jd.movieTitle, actors: jd.actors, people: jd.people, image: jd.image, code: jd.code };
+        value = { url: key, title: jd.movieTitle, movieTitle: jd.movieTitle, actors: jd.actors, people: jd.people, image: jd.image, code: jd.code, tags: jd.tags, released: jd.released, duration: jd.duration, maker: jd.maker };
         keep(value, OK_TTL);
         return value;
       }
