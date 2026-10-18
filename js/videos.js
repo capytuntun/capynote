@@ -126,6 +126,20 @@
   const saveTimers = new Map();        // note id -> timer
   let urlTimer = null;
 
+  // 「無痕開啟」：網頁本身開不了無痕視窗（瀏覽器不給任何 API），所以交給這台電腦上註冊的
+  // capynote-incognito: 協定（tools/incognito/install.cmd 註冊，open-incognito.ps1 處理），它用
+  // chrome --incognito <url> 開——Chrome 這個參數本來就是「已有無痕視窗就在裡面開新分頁，沒有
+  // 才開新視窗」。設定存 localStorage：只對裝了腳本的這台電腦有意義，沒裝的話開關關著行為照舊。
+  const LS_INCOG = 'strikenote.vdIncognito';
+  function incognitoOn() { try { return localStorage.getItem(LS_INCOG) === '1'; } catch (e) { return false; } }
+  function setIncognito(on) { try { localStorage.setItem(LS_INCOG, on ? '1' : '0'); } catch (e) { /* ignore */ } }
+  function openIncognito(url) {
+    if (!/^https?:\/\//i.test(url || '')) return false;
+    // 導到自訂協定不會離開這一頁；第一次 Chrome 會問一次「要開啟 capynote-incognito 嗎」
+    window.location.href = 'capynote-incognito:' + encodeURIComponent(url);
+    return true;
+  }
+
   function notes() { return (O && O.notes) || []; }
   function byId(id) { return notes().find(function (n) { return n.id === id; }) || null; }
   function allActors() { const s = {}; notes().forEach(function (n) { modelOf(n).actors.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
@@ -243,6 +257,7 @@
       '<select class="vd-sort" aria-label="排序">' +
       [['added', '最近新增'], ['watched', '最近看過'], ['count', '看最多次'], ['title', '標題']].map(function (s) { return '<option value="' + s[0] + '"' + (sort === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') +
       '</select>' +
+      '<button class="vd-incog' + (incognitoOn() ? ' is-on' : '') + '" type="button" aria-pressed="' + incognitoOn() + '" title="開啟連結時交給無痕視窗（已有無痕視窗就在裡面開新分頁）。要先在這台電腦執行一次 tools/incognito/install.cmd">' + ic('eye-off') + '<span>無痕開啟</span></button>' +
       fl.map(function (f) { return '<button class="vd-filter" type="button" data-clear="' + f[0] + '">' + esc(f[1]) + ic('x') + '</button>'; }).join('');
     if (notes().length) body.appendChild(tools);   // 一部影片都還沒有：搜尋與排序沒東西可搜，只留空狀態
     const grid = el('div', 'vd-grid');
@@ -258,6 +273,13 @@
     const input = tools.querySelector('input');
     input.addEventListener('input', function () { query = input.value; repaintGrid(grid); });
     tools.querySelector('.vd-sort').addEventListener('change', function (e) { sort = e.target.value; try { localStorage.setItem(LS_SORT, sort); } catch (x) { /* ignore */ } repaintGrid(grid); });
+    tools.querySelector('.vd-incog').addEventListener('click', function (e) {
+      const on = !incognitoOn();
+      setIncognito(on);
+      e.currentTarget.classList.toggle('is-on', on);
+      e.currentTarget.setAttribute('aria-pressed', String(on));
+      toast(on ? '「開啟連結」會交給無痕視窗' : '「開啟連結」改回一般分頁');
+    });
     tools.addEventListener('click', function (e) {
       const b = e.target.closest('[data-clear]');
       if (b) { filter[b.getAttribute('data-clear')] = null; paint(); }
@@ -303,6 +325,7 @@
       if ((b = e.target.closest('[data-actor]'))) { setFilter('actor', b.getAttribute('data-actor')); return; }
       if ((b = e.target.closest('[data-tag]'))) { setFilter('tag', b.getAttribute('data-tag')); return; }
       if ((b = e.target.closest('[data-lang]'))) { setFilter('lang', b.getAttribute('data-lang')); return; }
+      if ((b = e.target.closest('a.vd-open'))) { if (incognitoOn() && openIncognito(b.href)) e.preventDefault(); return; }
       if (e.target.closest('a')) return;
       if ((b = e.target.closest('[data-act]'))) {
         const act = b.getAttribute('data-act');
@@ -572,6 +595,11 @@
     }
     q('.vd-m-close').addEventListener('click', function () { closeModal(true); });
     ov.addEventListener('mousedown', function (e) { if (e.target === ov) closeModal(true); });
+    // 對話框裡的「開啟連結」（paintPlayer 每次重畫，所以掛在 overlay 上）
+    ov.addEventListener('click', function (e) {
+      const a = e.target.closest('a.vd-player-open');
+      if (a && incognitoOn() && openIncognito(a.href)) e.preventDefault();
+    });
     document.addEventListener('keydown', onModalKey, true);
   }
   function onModalKey(e) {
