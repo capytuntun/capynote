@@ -690,6 +690,15 @@ async function handleApi(req, res, url) {
     const info = await linkpreview.preview(url.searchParams.get('url'), { noCache: noCache });
     return json(res, 200, info, noCache ? { 'Cache-Control': 'no-store' } : (info.error ? {} : { 'Cache-Control': 'private, max-age=3600' }));
   }
+  // 影片庫：瀏覽器已經抓好、縮小過的圖片位元組直接存進系統（hidden 的上傳）；只收圖片類型、5 MB 內
+  if (p === '/api/link-preview/store-image' && method === 'POST') {
+    if (!config.linkPreview) return json(res, 404, { error: 'not found' });
+    const mime = uploadMime(req.headers['content-type']);
+    if (!/^image\/(jpeg|png|webp|gif|avif)$/.test(mime)) return json(res, 400, { error: '只收圖片' });
+    const buf = await readBody(req, 5 * 1024 * 1024);
+    if (!buf.length) return json(res, 400, { error: '空的' });
+    return send(await api.storeImageBytes(user, mime, buf));
+  }
   // 影片庫：把外部圖片存進系統（之後縮圖／大頭照從 /api/images/<id> 拿，不再每次去抓）
   if (p === '/api/link-preview/store' && method === 'POST') {
     if (!config.linkPreview) return json(res, 404, { error: 'not found' });

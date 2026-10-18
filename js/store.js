@@ -345,6 +345,8 @@
     lookupPerson: function (name) { return req('GET', '/api/link-preview/person?name=' + encodeURIComponent(name)); },
     // 影片庫：把外部圖片存進系統（hidden 的上傳，檔案管理不列），回 { id }
     storeLinkImage: function (url) { return req('POST', '/api/link-preview/store', { url: url }); },
+    // 同上，但把瀏覽器縮小過的圖片位元組直接送上去
+    storeLinkImageBytes: function (blob) { return req('POST', '/api/link-preview/store-image', blob, { raw: true, headers: { 'Content-Type': blob.type || 'image/webp' } }); },
     // noCache=true（影片庫）：不碰這一頁的快取，伺服器那邊也不讀不寫（?nocache=1，回 no-store）
     getLinkPreview: function (url, noCache) {
       if (noCache) return req('GET', '/api/link-preview?url=' + encodeURIComponent(url) + '&nocache=1');

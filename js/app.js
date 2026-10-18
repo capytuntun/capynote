@@ -2019,6 +2019,7 @@
           if (!yes) return;
           Store.deleteNote(n.id, true).then(function () {
             try { Store.forgetLinkPreview(Videos.parse(n.content).url); } catch (e) { /* ignore */ }
+            try { Videos.dropNoteImages(n); } catch (e) { /* ignore */ }   // 本機快取裡這部的圖也刪
             state.notes = state.notes.filter(function (x) { return x.id !== n.id; });
             refreshViews();
             toast('已刪除');
@@ -2043,8 +2044,16 @@
         return Store.lookupPerson(name).then(function (info) { return info || { error: '查不到' }; }, function (e) { return { error: e && e.message || '查不到' }; });
       },
       // 縮圖／大頭照存進系統：回 img id（之後從 /api/images/<id> 拿，不再每次去抓）；失敗回 null
+      // 瀏覽器那邊先透過代理抓、縮小，再把位元組送上來（onStoreImageBytes）；縮不了就退回讓伺服器自己抓
       onStoreImage: function (u) {
         return Store.storeLinkImage(u).then(function (r) { return r && r.id ? r.id : null; }, function () { return null; });
+      },
+      onStoreImageBytes: function (blob) {
+        return Store.storeLinkImageBytes(blob).then(function (r) { return r && r.id ? r.id : null; }, function () { return null; });
+      },
+      onFetchImage: function (u) {
+        return fetch('/api/link-preview/image?url=' + encodeURIComponent(u) + '&nocache=1', { credentials: 'same-origin' })
+          .then(function (r) { return r.ok ? r.blob() : null; }, function () { return null; });
       },
       // 不要了的存圖（換照片、人物整個拿掉）直接刪，不留在系統裡
       onDropImage: function (id) { return Store.deleteImage(id).then(function () { return true; }, function () { return false; }); },

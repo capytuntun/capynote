@@ -1127,6 +1127,12 @@ async function storeLinkImage(user, url) {
   await q.setImageHidden.run(1, r.id, user.id);
   return { id: r.id };
 }
+// 同上，但位元組由瀏覽器給（它已經透過代理抓到、縮小過了）；一樣標 hidden
+async function storeImageBytes(user, mime, buf) {
+  const r = await createImage(user, mime, buf, 'image', null);
+  await q.setImageHidden.run(1, r.id, user.id);
+  return { id: r.id };
+}
 // 檔案管理的重新命名／搬移到資料夾：只動中繼資料，不像 saveImage 那樣要求整包位元組
 // （標註）——連分塊上傳的大檔案也能改名字、搬資料夾，只是不能標註（saveImage 自己擋）。
 // name／folderId 都是選填，各自要動哪個由呼叫端決定（跟 updateFolder 同一個做法）。
@@ -1448,7 +1454,7 @@ module.exports = {
   listNoteLinks, createNoteLink, updateNoteLink, deleteNoteLink, publicNote,
   listFolders, createFolder, updateFolder, deleteFolder,
   listFileFolders, createFileFolder, updateFileFolder, deleteFileFolder,
-  createImage, storeLinkImage, getImage, saveImage, updateFile, deleteImage, listImages, saveOrder,
+  createImage, storeLinkImage, storeImageBytes, getImage, saveImage, updateFile, deleteImage, listImages, saveOrder,
   listIcons, createIcon, removeIcon, ICON_MAX_BYTES,
   startUpload, putChunk, finishUpload, sweepPendingUploads,
   listShares, addShare, removeShare,

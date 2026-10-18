@@ -260,6 +260,9 @@
     avatarWatch = null;
     if (host) host.innerHTML = '';
   }
+  function dropUrls() {
+    Object.keys(urlMap).forEach(function (id) { try { URL.revokeObjectURL(urlMap[id]); } catch (e) { /* ignore */ } delete urlMap[id]; });
+  }
   function teardown() {
     flushSaves();
     closeModal(false);
@@ -268,6 +271,7 @@
     host = null;
     revealed = false;
     applyBlur();
+    dropUrls();                        // blob: 網址只活在這一次開頁裡（本機快取本身留著）
     avatarMiss = {}; storeMiss = {};   // 「查過沒有／存不進去」只活在這一次開頁裡
   }
 
@@ -299,6 +303,7 @@
     else if (view === 'people') paintPeople(body);
     else if (view === 'watch') paintWatch(body);
     else paintList(body);
+    hydrate(host);    // 有 id 的圖從本機快取填進去
     ensureStored();   // 還是外部網址的縮圖／照片在背景存進系統
     if (view === 'list' || view === 'watch' || view === 'stats') ensureAvatars(function (p, info, changed) {
       // 人物誌／關聯圖自己掛了更新；這幾頁驗出結果就重畫一次（卡片的晶片、統計的排行會變）
@@ -424,10 +429,16 @@
   function refreshRow(n, m) {
     if (!host || view !== 'list') return;
     const card = host.querySelector('.vd-card[data-id="' + n.id + '"]');
-    if (card) { card.replaceWith(makeCard(n, m)); return; }
+    if (card) { const fresh = makeCard(n, m); card.replaceWith(fresh); hydrate(fresh); return; }
     const row = host.querySelector('.vd-row[data-id="' + n.id + '"]');
-    if (row && !row.contains(document.activeElement)) row.replaceWith(makeRow(n, m));
+    if (row && !row.contains(document.activeElement)) { const fresh = makeRow(n, m); row.replaceWith(fresh); hydrate(fresh); }
     else if (row) { const c = row.querySelector('.vd-t-count'); if (c) c.textContent = m.watches.length; }
+  }
+  // 一部影片硬刪時，它存的縮圖／大頭照在本機快取裡的那份也刪（app.js 的 onDelete 叫）
+  function dropNoteImages(n) {
+    const m = parse(n && n.content || '');
+    if (m.preview && m.preview.imageId) cacheDrop(m.preview.imageId);
+    Object.keys(m.avatarIds).forEach(function (k) { cacheDrop(m.avatarIds[k]); });
   }
 
   // ---------------- 表格：每一格直接改，改了 600 ms 後自動存 ----------------
@@ -576,19 +587,89 @@
       if (!n.title || n.title === '未命名影片') { title = mt || pv.title || code || n.title; titleIn.value = title; }
       setField(n, patch, title);
       const th = tr.querySelector('.vd-td-thumb');
-      if (th) th.innerHTML = thumbHTML(liveModel(n), 'vd-t-thumb');
+      if (th) { th.innerHTML = thumbHTML(liveModel(n), 'vd-t-thumb'); hydrate(th); }
     });
   }
-  // 存進系統的圖 404 了（備份還原後沒帶到、被手動刪掉）就退回代理抓原網址；原網址也壞才顯示佔位
-  function imgTag(src, fallback, attrs) {
-    return '<img src="' + esc(src) + '" alt="" loading="lazy"' + (attrs || '') +
+  // ---------------- 本機圖片快取（Cache Storage） ----------------
+  // 存進系統的圖（有 id 的）在這台電腦也留一份：顯示時先從本機拿，沒有才向伺服器要一次並存起來。
+  // 使用者說圖可以存在本地，但「刪除就要直接刪」：影片硬刪、換照片、拿掉人物時 cacheDrop() 連本機
+  // 這份一起刪（app.js 的 onDelete → Videos.dropNoteImages）。Cache Storage 只在 https／localhost 有，
+  // 沒有就退回直接向伺服器要（伺服器那邊有一年的 immutable 快取）。urlMap 是這次開頁已經拿到的
+  // blob: 網址，重畫時同步可用，離開頁面時 revoke。
+  const CACHE_NAME = 'capynote-vd-img';
+  const urlMap = {};                     // img id -> blob: url
+  const fetching = {};                   // img id -> Promise
+  function cacheStore() { try { return (window.isSecureContext && window.caches) ? caches.open(CACHE_NAME) : Promise.reject(new Error('no cache')); } catch (e) { return Promise.reject(e); } }
+  function cacheKey(id) { return '/api/images/' + encodeURIComponent(id); }
+  function cachePut(id, blob) {
+    if (!id || !blob) return Promise.resolve();
+    return cacheStore().then(function (c) { return c.put(cacheKey(id), new Response(blob, { headers: { 'Content-Type': blob.type || 'image/webp' } })); }).catch(function () {});
+  }
+  function cacheDrop(id) {
+    if (!id) return;
+    if (urlMap[id]) { try { URL.revokeObjectURL(urlMap[id]); } catch (e) { /* ignore */ } delete urlMap[id]; }
+    cacheStore().then(function (c) { return c.delete(cacheKey(id)); }).catch(function () {});
+  }
+  // 不要了的存圖：系統裡的（伺服器）跟本機快取的一起刪
+  function dropImage(id) { if (!id) return; cacheDrop(id); if (O && O.onDropImage) O.onDropImage(id); }
+  // 拿到這張圖的 blob: 網址：urlMap → 本機快取 → 向伺服器要一次（存進本機）。拿不到回 ''
+  function imageUrl(id) {
+    if (urlMap[id]) return Promise.resolve(urlMap[id]);
+    if (fetching[id]) return fetching[id];
+    fetching[id] = cacheStore()
+      .then(function (c) { return c.match(cacheKey(id)); }, function () { return null; })
+      .then(function (hit) {
+        if (hit) return hit.blob();
+        return fetch(cacheKey(id), { credentials: 'same-origin' }).then(function (r) {
+          if (!r.ok) throw new Error('http ' + r.status);
+          return r.blob().then(function (b) { cachePut(id, b); return b; });
+        });
+      })
+      .then(function (blob) { const u = URL.createObjectURL(blob); urlMap[id] = u; return u; })
+      .catch(function () { return ''; })
+      .then(function (u) { delete fetching[id]; return u; });
+    return fetching[id];
+  }
+  // 把 root 底下帶 data-vid 的 <img> 填上圖：同步有的直接給，沒有的等 imageUrl()；拿不到就退回 data-fb（代理原網址）
+  function hydrate(root) {
+    if (!root) return;
+    root.querySelectorAll('img[data-vid]').forEach(function (img) {
+      const id = img.getAttribute('data-vid');
+      img.removeAttribute('data-vid');
+      if (urlMap[id]) { img.src = urlMap[id]; return; }
+      imageUrl(id).then(function (u) {
+        if (!img.isConnected) return;
+        if (u) img.src = u;
+        else if (img.dataset.fb) { img.src = img.dataset.fb; delete img.dataset.fb; }
+        else img.dispatchEvent(new Event('error'));
+      });
+    });
+  }
+  // 存進系統前先在瀏覽器縮小：卡片只有 230px 寬，原圖一兩百 KB 是白傳；轉 WebP
+  function shrink(blob, maxW) {
+    if (!blob || !window.createImageBitmap) return Promise.resolve(blob);
+    return createImageBitmap(blob).then(function (bm) {
+      const scale = Math.min(1, maxW / bm.width);
+      const w = Math.max(1, Math.round(bm.width * scale)), h = Math.max(1, Math.round(bm.height * scale));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(bm, 0, 0, w, h);
+      bm.close && bm.close();
+      return new Promise(function (res) { cv.toBlob(function (b) { res(b || blob); }, 'image/webp', 0.82); });
+    }, function () { return blob; });
+  }
+  // 存進系統的圖 404 了（備份還原後沒帶到、被手動刪掉）就退回代理抓原網址；原網址也壞才顯示佔位。
+  // 有 id 的先不給 src（hydrate 之後從本機／伺服器補），沒 id 的直接走代理
+  function imgTag(src, fallback, attrs, id) {
+    const sync = id && urlMap[id];
+    return '<img ' + (id ? (sync ? 'src="' + esc(sync) + '"' : 'data-vid="' + esc(id) + '"') : 'src="' + esc(src) + '"') + ' alt="" loading="lazy"' + (attrs || '') +
       (fallback && fallback !== src ? ' data-fb="' + esc(fallback) + '"' : '') +
       ' onerror="if(this.dataset.fb){this.src=this.dataset.fb;delete this.dataset.fb;}else{this.parentNode.classList.add(\'is-empty\');this.remove();}">';
   }
   function thumbHTML(m, cls, extra) {
     const t = thumbOf(m);
+    const id = m.preview && m.preview.image ? m.preview.imageId : '';
     return '<div class="' + cls + (t ? '' : ' is-empty') + '">' +
-      (t ? imgTag(thumbSrc(m), proxied(t)) : '') +
+      (t ? imgTag(thumbSrc(m), proxied(t), '', id) : '') +
       '<span class="vd-thumb-ph">' + ic('film') + '</span>' + (extra || '') + '</div>';
   }
   // 縮圖右下角的標籤：語言、字幕（點一下就依它篩選）
@@ -909,6 +990,7 @@
       }
       box.innerHTML = thumbHTML(model, 'vd-player-thumb') +
         (model.url ? '<a class="btn btn-primary vd-player-open" href="' + esc(model.url) + '" target="_blank" rel="noopener noreferrer">' + ic('external-link') + '<span>開啟連結</span></a>' : '');
+      hydrate(box);
     }
     paintPlayer(); paintPreview();
     if (!isNew) paintWatches();
@@ -1326,7 +1408,7 @@
       [m.avatars, m.avatarIds, m.verified].forEach(function (map) {
         Object.keys(map).forEach(function (k) {
           if (k.toLowerCase() !== key) return;
-          if (map === m.avatarIds && O.onDropImage) O.onDropImage(map[k]);
+          if (map === m.avatarIds) dropImage(map[k]);
           delete map[k];
         });
       });
@@ -1373,15 +1455,28 @@
             });
           }
           if (!task) break;
-          let id = null;
-          try { id = await O.onStoreImage(task.url); } catch (e) { id = null; }
+          // 瀏覽器自己透過代理抓、縮小（縮圖 640 寬、大頭照 240 寬）、送位元組上去，順手放進本機快取；
+          // 任何一步不行就退回讓伺服器自己抓原圖
+          let id = null, small = null;
+          try {
+            if (O.onFetchImage && O.onStoreImageBytes) {
+              const blob = await O.onFetchImage(task.url);
+              if (blob && /^image\//.test(blob.type)) {
+                small = await shrink(blob, task.kind === 'thumb' ? 640 : 240);
+                if (small) id = await O.onStoreImageBytes(small);
+              }
+            }
+            if (!id) { small = null; id = await O.onStoreImage(task.url); }
+          } catch (e) { id = null; }
           if (!host) break;
           if (!id) { storeMiss[task.url] = true; continue; }
+          if (small) await cachePut(id, small);
           const m = liveModel(task.n);
-          if (task.kind === 'thumb') { if (m.preview && m.preview.image === task.url) m.preview.imageId = id; else { if (O.onDropImage) O.onDropImage(id); continue; } }
-          else { if (m.avatars[task.name] === task.url) m.avatarIds[task.name] = id; else { if (O.onDropImage) O.onDropImage(id); continue; } }
+          if (task.kind === 'thumb') { if (m.preview && m.preview.image === task.url) m.preview.imageId = id; else { dropImage(id); continue; } }
+          else { if (m.avatars[task.name] === task.url) m.avatarIds[task.name] = id; else { dropImage(id); continue; } }
           write(task.n, m); if (O.onSave) O.onSave(task.n);
-          if (task.kind === 'thumb') refreshRow(task.n, m);   // 卡片改從系統裡拿圖
+          if (task.kind === 'thumb') refreshRow(task.n, m);   // 卡片改從本機／系統裡拿圖
+          else if (view === 'graph' && graphView && graphView.setNodeImage) { const u = await imageUrl(id); if (u) graphView.setNodeImage('a:' + task.name.toLowerCase(), u); }
         }
       } finally { storeJob = null; }
     })();
@@ -1394,7 +1489,7 @@
     card.tabIndex = 0;
     card.innerHTML =
       '<div class="vd-person-av' + (p.avatar ? '' : ' is-empty') + '">' +
-      (p.avatar ? imgTag(srcOf(p.avatar, p.avatarId), proxied(p.avatar)) : '') +
+      (p.avatar ? imgTag(srcOf(p.avatar, p.avatarId), proxied(p.avatar), '', p.avatarId) : '') +
       '<span class="vd-person-ph">' + esc(p.name.slice(0, 1)) + '</span></div>' +
       '<div class="vd-person-name" title="' + esc(p.name) + '">' + esc(p.name) + '</div>' +
       '<div class="vd-person-meta">' + p.videos.length + ' 部・看過 ' + p.watches + ' 次</div>' +
@@ -1413,7 +1508,7 @@
           const m = liveModel(n);
           const k = Object.keys(m.avatars).find(function (a) { return a.toLowerCase() === p.key; });
           if (!k) return;
-          if (m.avatarIds[k] && O.onDropImage) O.onDropImage(m.avatarIds[k]);   // 舊照片從系統裡刪掉
+          if (m.avatarIds[k]) dropImage(m.avatarIds[k]);   // 舊照片從系統裡刪掉
           delete m.avatars[k]; delete m.avatarIds[k]; delete m.verified[k];
           write(n, m); if (O.onSave) O.onSave(n);
         });
@@ -1459,7 +1554,7 @@
       if (changed || !p.verified) { paint(); return; }
       const fresh = peopleIndex().find(function (x) { return x.key === p.key; });
       const old = grid.querySelector('.vd-person[data-key="' + CSS.escape(p.key) + '"]');
-      if (fresh && old && fresh.avatar !== p.avatar) old.replaceWith(personCard(fresh));
+      if (fresh && old && fresh.avatar !== p.avatar) { const c = personCard(fresh); old.replaceWith(c); hydrate(c); }
       if (fresh) Object.assign(p, fresh);
       st.textContent = statusText();
     });
@@ -1477,8 +1572,8 @@
       v.watches = m.watches.length;
       shownActors(m, vk).forEach(function (a) {
         const an = node('a:' + a.toLowerCase(), 'actor', a);
-        // 人物節點帶大頭照（graph.js 畫成圓形照片）：存進系統的優先，沒有才走代理
-        if (!an.image && m.avatars[a]) an.image = srcOf(m.avatars[a], m.avatarIds[a]);
+        // 人物節點帶大頭照（graph.js 畫成圓形照片）：本機已有的 blob: 最快，再來存進系統的，沒有才走代理
+        if (!an.image && m.avatars[a]) an.image = (m.avatarIds[a] && urlMap[m.avatarIds[a]]) || srcOf(m.avatars[a], m.avatarIds[a]);
         edge(v.id, 'a:' + a.toLowerCase(), 'actor');
       });
       m.tags.forEach(function (t) { node('t:' + t.toLowerCase(), 'tag', '#' + t); edge(v.id, 't:' + t.toLowerCase(), 'tag'); });
@@ -1608,7 +1703,7 @@
   global.Videos = {
     render: render, refresh: refresh, open: open, teardown: teardown, saved: saved,
     isNote: isNote, isWatch: isWatch, parse: parse, generate: generate, parseWatch: parseWatch, generateWatch: generateWatch,
-    blockHTML: blockHTML, stats: stats, buildGraph: buildGraph, parseBatch: parseBatch, peopleIndex: peopleIndex,
+    blockHTML: blockHTML, stats: stats, buildGraph: buildGraph, parseBatch: parseBatch, peopleIndex: peopleIndex, dropNoteImages: dropNoteImages,
     isOpen: function () { return !!modal; }
   };
 })(window);
