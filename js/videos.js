@@ -163,6 +163,10 @@
   let filter = { actor: null, tag: null, lang: null, subtitle: null };
   let sort = (function () { try { return localStorage.getItem(LS_SORT) || 'added'; } catch (e) { return 'added'; } })();
   let listMode = (function () { try { return localStorage.getItem(LS_MODE) === 'table' ? 'table' : 'cards'; } catch (e) { return 'cards'; } })();
+  // 圖片預設模糊（縮圖、大頭照、關聯圖的照片），頁首「顯示圖片」按一下全部打開；每次進影片頁都回到模糊，
+  // 不記住。class 掛在 <html> 上，對話框這種 body 底下的疊層也遮得到（app.css 的 .vd-blur）。
+  let revealed = false;
+  function applyBlur() { document.documentElement.classList.toggle('vd-blur', !!host && !revealed); }
   let pendingPaint = false;            // 表格有格子在打字時延後的整頁重畫
   let modal = null;                    // { overlay, note, model, draft }
   let graphView = null;
@@ -239,6 +243,8 @@
     if (host && host !== container) teardownView();
     host = container;
     host.classList.add('vd-page');
+    revealed = false;
+    applyBlur();
     paint();
   }
   function refresh(opts) {
@@ -260,6 +266,8 @@
     closeBatch();
     teardownView();
     host = null;
+    revealed = false;
+    applyBlur();
     avatarMiss = {}; storeMiss = {};   // 「查過沒有／存不進去」只活在這一次開頁裡
   }
 
@@ -279,6 +287,7 @@
       [['list', 'list', '清單'], ['watch', 'eye', '觀察區'], ['people', 'users', '人物誌'], ['graph', 'graph', '關聯圖'], ['stats', 'chart', '統計']].map(function (t) {
         return '<button class="vd-tab' + (view === t[0] ? ' is-active' : '') + '" type="button" data-view="' + t[0] + '" aria-pressed="' + (view === t[0]) + '">' + ic(t[1]) + '<span>' + t[2] + '</span></button>';
       }).join('') + '</nav>' +
+      '<button class="btn vd-reveal' + (revealed ? ' is-on' : '') + '" type="button" aria-pressed="' + revealed + '" title="圖片預設是模糊的，按一下全部顯示；再按一下遮回去">' + ic(revealed ? 'eye-off' : 'eye') + '<span>' + (revealed ? '隱藏圖片' : '顯示圖片') + '</span></button>' +
       '<button class="btn vd-batch" type="button" title="貼一份網址清單，一次新增多部（可以帶全名）">' + ic('list') + '<span>批次新增</span></button>' +
       '<button class="btn btn-primary vd-add" type="button">' + ic('plus') + '<span>新增影片</span></button></div>';
     host.appendChild(head);
@@ -298,6 +307,14 @@
 
     head.querySelector('.vd-add').addEventListener('click', function () { openModal(null); });
     head.querySelector('.vd-batch').addEventListener('click', function () { openBatch(); });
+    head.querySelector('.vd-reveal').addEventListener('click', function (e) {
+      revealed = !revealed;
+      applyBlur();
+      const b = e.currentTarget;
+      b.classList.toggle('is-on', revealed);
+      b.setAttribute('aria-pressed', String(revealed));
+      b.innerHTML = ic(revealed ? 'eye-off' : 'eye') + '<span>' + (revealed ? '隱藏圖片' : '顯示圖片') + '</span>';
+    });
     tabs.addEventListener('click', function (e) {
       const b = e.target.closest('[data-view]');
       if (b) setView(b.getAttribute('data-view'));
