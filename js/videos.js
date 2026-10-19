@@ -8,7 +8,12 @@
  *
  *   { url, code（編號）, movieTitle（全名）, actors: [..], avatars: { 人物名: 大頭照網址 }, lang, subtitle,
  *     tags: [..], watches: ['YYYY-MM-DDTHH:MM', ..], notes, added: 'YYYY-MM-DD',
- *     preview: { title, description, image, site } }
+ *     preview: { title, description, image, imageId, custom, site } }
+ *
+ * preview.imageId 是存進系統的縮圖；custom: 1 表示那張是使用者自己上傳的（對話框「上傳縮圖」、拖
+ * 進來、Ctrl+V、卡片選單），重抓預覽、換網址都不會蓋掉它。人物的自訂資料（名字、自訂別名、自訂
+ * 照片、備註）是一人一篇 meta: { video, person } 的筆記、內文一個 ```person 圍欄（isPerson／
+ * parsePerson）：疊在影片算出來的人物誌上面，刪影片不會跟著不見，「從所有影片拿掉」才會刪。
  *
  * 人物的大頭照存在影片裡（avatars，預覽抓回來時伺服器一起給的），人物誌／關聯圖把所有影片的
  * avatars 合起來看；還沒有照片的人物由 ensureAvatars() 逐一用名字問伺服器（opts.onPerson），
@@ -80,6 +85,19 @@
     return { url: safeUrl(raw.url), note: str(raw.note, 500), added: /^\d{4}-\d{2}-\d{2}$/.test(raw.added || '') ? raw.added : today() };
   }
   function generateWatch(w) { return '```watch\n' + JSON.stringify(parseWatch('```watch\n' + JSON.stringify(w || {}) + '\n```'), null, 2) + '\n```\n'; }
+  // 人物資料：使用者自己編輯的那一份（名字、自訂別名、自訂照片、備註），一人一篇 meta: { video, person }
+  // 的筆記、內文一個 ```person 圍欄——不放在影片裡，所以刪了影片也不會跟著不見；人物誌把它疊在
+  // 影片算出來的資料上面（自訂照片蓋過資料庫的、自訂別名併進去）。有這篇就代表使用者接手了這個人：
+  // 背景查核不再自動改她的名字。
+  function isPerson(n) { return !!(n && n.meta && n.meta.person); }
+  const PERSON_FENCE = /```person[^\n]*\n([\s\S]*?)\n```/;
+  function parsePerson(text) {
+    let raw = null;
+    try { const m = PERSON_FENCE.exec(String(text || '')); raw = m ? JSON.parse(m[1]) : null; } catch (e) { raw = null; }
+    raw = raw && typeof raw === 'object' ? raw : {};
+    return { name: str(raw.name, 60).trim(), aliases: cleanList(raw.aliases, 20, 60), note: str(raw.note, 5000), imageId: safeId(raw.imageId), added: /^\d{4}-\d{2}-\d{2}$/.test(raw.added || '') ? raw.added : today() };
+  }
+  function generatePerson(p) { return '```person\n' + JSON.stringify(parsePerson('```person\n' + JSON.stringify(p || {}) + '\n```'), null, 2) + '\n```\n'; }
   function payloadOf(text) { const m = FENCE.exec(String(text || '')); return m ? m[1] : ''; }
   function blank() { return { url: '', code: '', movieTitle: '', actors: [], avatars: {}, avatarIds: {}, verified: {}, aliases: {}, works: {}, lang: '', subtitle: '', tags: [], released: '', duration: 0, maker: '', watches: [], notes: '', added: today(), preview: null }; }
   // 人物名 → 值 的對照表：只留「這部影片的人物」的鍵（比對不分大小寫），值由 ok() 檢查
@@ -123,8 +141,11 @@
     if (raw.preview && typeof raw.preview === 'object') {
       const p = raw.preview;
       m.preview = { title: str(p.title, 200), description: str(p.description, 300), image: safeUrl(p.image), imageId: safeId(p.imageId), site: str(p.site, 80) };
-      if (!m.preview.image) m.preview.imageId = '';
-      if (!m.preview.title && !m.preview.image && !m.preview.description) m.preview = null;
+      // custom：縮圖是使用者自己上傳的（imageId 不是從 image 網址存來的）——沒有 image 網址也成立，
+      // 重抓預覽／換網址都不碰它，只有「用網站的圖」或刪影片才拿掉
+      if (p.custom && m.preview.imageId) m.preview.custom = 1;
+      if (!m.preview.image && !m.preview.custom) m.preview.imageId = '';
+      if (!m.preview.title && !m.preview.image && !m.preview.description && !m.preview.custom) m.preview = null;
     }
     return m;
   }
@@ -143,7 +164,10 @@
     return m ? 'https://i.ytimg.com/vi/' + m[1] + '/hqdefault.jpg' : '';
   }
   function thumbOf(m) { return (m.preview && m.preview.image) || ytThumb(m.url) || ''; }
-  function thumbSrc(m) { return srcOf(thumbOf(m), m.preview && m.preview.image ? m.preview.imageId : ''); }
+  // 存進系統的縮圖 id：從網址存來的要網址還在才算（網址換了就重存），自己上傳的（custom）一律算
+  function thumbId(m) { const p = m.preview; return p && p.imageId && (p.custom || p.image) ? p.imageId : ''; }
+  function thumbSrc(m) { return srcOf(thumbOf(m), thumbId(m)); }
+  function hasThumb(m) { return !!(thumbOf(m) || thumbId(m)); }
   function proxied(u) { return O && O.proxy ? O.proxy(u) : '/api/link-preview/image?url=' + encodeURIComponent(u) + '&nocache=1'; }
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
   // 網址最後一段長得像編號（/videos/nsps-994/、…/NSPS-994-uncensored）就取出來當編號：
@@ -194,13 +218,13 @@
   }
   function onActivity() { if (idleTimer) armIdle(); }
   function leaveNow() {
-    closeMenu(); closeModal(true); closeBatch();
+    closeMenu(); closeModal(true); closeBatch(); closePersonEdit(false);
     setRevealed(false);
     if (O && O.onLeave) O.onLeave(); else teardown();
   }
   function onGlobalKey(e) {
     if (!host || e.key !== 'Escape') return;
-    if (modal || batch || menuEl) { lastEsc = 0; return; }   // 對話框開著的 Esc 是關它，不算
+    if (modal || batch || menuEl || pedit) { lastEsc = 0; return; }   // 對話框開著的 Esc 是關它，不算
     const now = Date.now();
     if (now - lastEsc < 600) { lastEsc = 0; e.preventDefault(); leaveNow(); }
     else lastEsc = now;
@@ -234,8 +258,11 @@
     return true;
   }
 
-  function notes() { return ((O && O.notes) || []).filter(function (n) { return !isWatch(n); }); }
+  function notes() { return ((O && O.notes) || []).filter(function (n) { return !isWatch(n) && !isPerson(n); }); }
   function watchNotes() { return ((O && O.notes) || []).filter(isWatch); }
+  function personNotes() { return ((O && O.notes) || []).filter(isPerson); }
+  // 某個人（小寫名字）的自訂資料筆記，沒有回 null；profileOf 回解析好的內容（沒有筆記回 null）
+  function personNoteOf(key) { return personNotes().find(function (n) { return parsePerson(n.content).name.toLowerCase() === key; }) || null; }
   function byId(id) { return notes().find(function (n) { return n.id === id; }) || null; }
   function allActors() { const s = {}; notes().forEach(function (n) { modelOf(n).actors.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
   function allTags() { const s = {}; notes().forEach(function (n) { modelOf(n).tags.forEach(function (a) { s[a] = 1; }); }); return Object.keys(s).sort(); }
@@ -268,8 +295,20 @@
         if (lw > p.last) p.last = lw;
       });
     });
+    // 使用者自己編輯的資料疊上去：自訂照片蓋過資料庫的、自訂別名併進去、備註；沒有影片了也還列著
+    // （那是使用者寫的，刪影片不該連資料一起不見；「從所有影片拿掉」才會刪）
+    personNotes().forEach(function (n) {
+      const pr = parsePerson(n.content);
+      if (!pr.name) return;
+      const k = pr.name.toLowerCase();
+      const p = map[k] || (map[k] = { key: k, name: pr.name, videos: [], watches: 0, avatar: '', avatarId: '', verified: true, aliases: [], works: 0, last: '' });
+      p.profile = n; p.note = pr.note; p.verified = true;
+      if (pr.imageId) { p.avatarId = pr.imageId; p.avatar = ''; p.custom = true; }
+      pr.aliases.forEach(function (x) { if (x.toLowerCase() !== k && !p.aliases.some(function (y) { return y.toLowerCase() === x.toLowerCase(); })) p.aliases.push(x); });
+    });
     return Object.keys(map).map(function (k) { return map[k]; }).sort(function (a, b) { return b.videos.length - a.videos.length || b.watches - a.watches || a.name.localeCompare(b.name, 'zh-Hant'); });
   }
+  function hasPhoto(p) { return !!(p.avatar || p.avatarId); }
 
   function scheduleSave(note) {
     if (!O || !O.onSave) return;
@@ -317,6 +356,7 @@
     flushSaves();
     closeModal(false);
     closeBatch();
+    closePersonEdit(false);
     teardownView();
     host = null;
     revealed = false;
@@ -393,6 +433,7 @@
     if (aliasMemo) return aliasMemo;
     const map = {};
     notes().forEach(function (n) { const m = modelOf(n); Object.keys(m.aliases).forEach(function (k) { map[k.toLowerCase()] = (map[k.toLowerCase()] || []).concat(m.aliases[k]); }); });
+    personNotes().forEach(function (n) { const pr = parsePerson(n.content); if (pr.name && pr.aliases.length) map[pr.name.toLowerCase()] = (map[pr.name.toLowerCase()] || []).concat(pr.aliases); });
     aliasMemo = map;
     return map;
   }
@@ -508,11 +549,14 @@
     if (row && !row.contains(document.activeElement)) { const fresh = makeRow(n, m); row.replaceWith(fresh); hydrate(fresh); }
     else if (row) { const c = row.querySelector('.vd-t-count'); if (c) c.textContent = m.watches.length; }
   }
-  // 一部影片硬刪時，它存的縮圖／大頭照在本機快取裡的那份也刪（app.js 的 onDelete 叫）
+  // 一部影片（或一篇人物資料）硬刪時，它存的縮圖／大頭照跟著刪：系統裡的那份（伺服器只認內文裡的
+  // img:<id> 引用，圍欄 JSON 裡的 imageId 它看不到，所以要從這裡刪）跟本機快取的那份（app.js 的
+  // onDelete／onDeleteNow 叫）
   function dropNoteImages(n) {
+    if (isPerson(n)) { dropImage(parsePerson(n.content).imageId); return; }
     const m = parse(n && n.content || '');
-    if (m.preview && m.preview.imageId) cacheDrop(m.preview.imageId);
-    Object.keys(m.avatarIds).forEach(function (k) { cacheDrop(m.avatarIds[k]); });
+    if (m.preview && m.preview.imageId) dropImage(m.preview.imageId);
+    Object.keys(m.avatarIds).forEach(function (k) { dropImage(m.avatarIds[k]); });
   }
 
   // ---------------- 表格：每一格直接改，改了 600 ms 後自動存 ----------------
@@ -729,7 +773,8 @@
       const patch = {};
       const pv = { title: str(info.title, 200), description: str(info.description, 300), image: safeUrl(info.image), site: str(info.siteName, 80) };
       if (!pv.image) pv.image = ytThumb(u);
-      patch.preview = (pv.title || pv.image || pv.description) ? pv : null;
+      if (m.preview && m.preview.custom) { pv.imageId = m.preview.imageId; pv.custom = 1; }   // 自己上傳的縮圖留著
+      patch.preview = (pv.title || pv.image || pv.description || pv.custom) ? pv : null;
       const code = str(info.code, 60).trim() || codeFromUrl(u);
       const codeIn = tr.querySelector('.vd-t-code'), mtIn = tr.querySelector('.vd-t-movietitle'), titleIn = tr.querySelector('.vd-t-title');
       if (code && !m.code) { patch.code = code; codeIn.value = code; }
@@ -819,6 +864,54 @@
       return new Promise(function (res) { cv.toBlob(function (b) { res(b || blob); }, 'image/webp', 0.82); });
     }, function () { return blob; });
   }
+  // ---------------- 使用者自己上傳的圖：影片縮圖、人物照片 ----------------
+  // 選檔（或拖進來、貼上）→ 跟抓來的圖一樣在瀏覽器縮小、存成 hidden 上傳、放進本機快取；回 id，失敗回 null。
+  // 縮圖記在 preview.imageId 加 custom: 1（重抓預覽、換網址都不碰），人物照片記在那個人的資料筆記裡。
+  function storeFile(file, maxW) {
+    if (!file || !/^image\//.test(file.type || '')) { toast('請選一張圖片檔'); return Promise.resolve(null); }
+    if (!O || !O.onStoreImageBytes) { toast('這裡不能上傳圖片'); return Promise.resolve(null); }
+    return shrink(file, maxW).then(function (small) {
+      if (!small) return null;
+      return O.onStoreImageBytes(small).then(function (id) {
+        if (!id) return null;
+        return cachePut(id, small).then(function () { return id; });
+      });
+    }).then(function (id) { if (!id) toast('上傳失敗'); return id; }, function () { toast('上傳失敗'); return null; });
+  }
+  function pickFile(cb) {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.addEventListener('change', function () { if (inp.files && inp.files[0]) cb(inp.files[0]); });
+    inp.click();
+  }
+  function imageFileOf(dt) {
+    const files = dt && dt.files ? Array.prototype.slice.call(dt.files) : [];
+    return files.find(function (f) { return /^image\//.test(f.type || ''); }) || null;
+  }
+  // 把一張自己的圖設成這部影片的縮圖：n 給了就寫進那部並存檔（卡片／表格列跟著換），沒給（新增對話框）
+  // 只改 model；舊的存圖（抓來的或上一張自訂的）直接刪
+  function uploadThumb(n, model, file) {
+    return storeFile(file, 640).then(function (id) {
+      if (!id) return false;
+      const m = n ? liveModel(n) : model;
+      const old = thumbId(m);
+      m.preview = Object.assign(m.preview || { title: '', description: '', image: '', site: '' }, { imageId: id, custom: 1 });
+      if (old && old !== id) dropImage(old);
+      if (n) { write(n, m); if (O.onSave) O.onSave(n); refreshRow(n, m); }
+      return true;
+    });
+  }
+  // 不要自訂縮圖了：刪掉那張，有網站的圖就讓 ensureStored 再存一次
+  function revertThumb(n, model) {
+    const m = n ? liveModel(n) : model;
+    const p = m.preview;
+    if (!p || !p.custom) return;
+    dropImage(p.imageId);
+    delete p.custom; p.imageId = '';
+    if (!p.title && !p.image && !p.description) m.preview = null;
+    if (n) { write(n, m); if (O.onSave) O.onSave(n); refreshRow(n, m); }
+    ensureStored();
+  }
   // 存進系統的圖 404 了（備份還原後沒帶到、被手動刪掉）就退回代理抓原網址；原網址也壞才顯示佔位。
   // 有 id 的先不給 src（hydrate 之後從本機／伺服器補），沒 id 的直接走代理
   function imgTag(src, fallback, attrs, id) {
@@ -828,10 +921,9 @@
       ' onerror="if(this.dataset.fb){this.src=this.dataset.fb;delete this.dataset.fb;}else{this.parentNode.classList.add(\'is-empty\');this.remove();}">';
   }
   function thumbHTML(m, cls, extra) {
-    const t = thumbOf(m);
-    const id = m.preview && m.preview.image ? m.preview.imageId : '';
-    return '<div class="' + cls + (t ? '' : ' is-empty') + '">' +
-      (t ? imgTag(thumbSrc(m), proxied(t), '', id) : '') +
+    const t = thumbOf(m), id = thumbId(m);
+    return '<div class="' + cls + (t || id ? '' : ' is-empty') + '">' +
+      (t || id ? imgTag(thumbSrc(m), t ? proxied(t) : '', '', id) : '') +
       '<span class="vd-thumb-ph">' + ic('film') + '</span>' + (extra || '') + '</div>';
   }
   // 縮圖右下角的標籤：語言、字幕（點一下就依它篩選）
@@ -887,9 +979,10 @@
     return card;
   }
   function cardMenu(n, x, y) {
-    menuAt(x, y, [['open', '查看／編輯'], ['watch', '+1 看過'], ['copy', '複製連結', !modelOf(n).url], null, ['del', '刪除', false, true]], function (a) {
+    menuAt(x, y, [['open', '查看／編輯'], ['watch', '+1 看過'], ['copy', '複製連結', !modelOf(n).url], ['thumb', '上傳縮圖…'], null, ['del', '刪除', false, true]], function (a) {
       if (a === 'open') openModal(n);
       else if (a === 'watch') addWatch(n);
+      else if (a === 'thumb') pickFile(function (f) { uploadThumb(n, null, f).then(function (ok) { if (ok) toast('縮圖已換成你上傳的'); }); });
       else if (a === 'copy') { const u = modelOf(n).url; if (u && navigator.clipboard) navigator.clipboard.writeText(u).then(function () { toast('已複製連結'); }); }
       else if (a === 'del' && O.onDelete) O.onDelete(n);
     });
@@ -1091,9 +1184,11 @@
 
     // 網址：貼上／輸入後自動抓預覽（600 ms 沒再動才抓）；按「抓預覽」強制重抓
     const urlIn = q('.vd-m-url');
+    // 換網址：預覽作廢，但自己上傳的縮圖留著（只留 imageId + custom）
+    function keepCustom(p) { return p && p.custom ? { title: '', description: '', image: '', site: '', imageId: p.imageId, custom: 1 } : null; }
     urlIn.addEventListener('input', function () {
       const u = safeUrl(urlIn.value);
-      apply({ url: u, preview: u === model.url ? model.preview : null });
+      apply({ url: u, preview: u === model.url ? model.preview : keepCustom(model.preview) });
       paintPlayer();
       if (urlTimer) clearTimeout(urlTimer);
       if (u) urlTimer = setTimeout(function () { fetchPreview(false); }, 600);
@@ -1103,15 +1198,18 @@
     function fetchPreview(force) {
       const u = safeUrl(urlIn.value);
       if (!u || !O.onPreview) return;
-      if (!force && model.preview && model.url === u) { paintPreview(); return; }
+      const pv0 = model.preview;
+      if (!force && pv0 && (pv0.title || pv0.image || pv0.description) && model.url === u) { paintPreview(); return; }   // 只剩自訂縮圖的殼不算有預覽
       modal.fetching = true; paintPreview();
       O.onPreview(u).then(function (info) {
         if (!modal || modal.overlay !== ov) return;
         modal.fetching = false;
         if (urlIn.value.trim() !== u && safeUrl(urlIn.value) !== u) return;   // 已經改成別的網址了
         const failed = !info || info.error;
-        const pv = failed ? null : { title: str(info.title, 200), description: str(info.description, 300), image: safeUrl(info.image), site: str(info.siteName, 80) };
+        let pv = failed ? null : { title: str(info.title, 200), description: str(info.description, 300), image: safeUrl(info.image), site: str(info.siteName, 80) };
         if (pv && !pv.image) pv.image = ytThumb(u);
+        // 自己上傳的縮圖不被重抓蓋掉：帶到新的預覽上
+        if (model.preview && model.preview.custom) pv = Object.assign(pv || { title: '', description: '', image: '', site: '' }, { imageId: model.preview.imageId, custom: 1 });
         const t = q('.vd-m-title');
         if (pv && pv.title && !t.value.trim()) t.value = pv.title;
         // 編號從網址補：欄位還空著就填；標題也還空著（預覽抓不到）就先用編號當標題
@@ -1143,7 +1241,7 @@
           ['released', 'duration', 'maker'].forEach(function (k) { if (extra[k] !== undefined) { const inp = q('.vd-m-' + k); if (inp) inp.value = extra[k]; } });
           Object.assign(fill, extra);
         }
-        apply(Object.assign({ url: u, preview: pv && (pv.title || pv.image || pv.description) ? pv : null }, fill));
+        apply(Object.assign({ url: u, preview: pv && (pv.title || pv.image || pv.description || pv.custom) ? pv : null }, fill));
         // 抓失敗就靜默，編號已從網址自動補齊；不把伺服器錯誤顯示在輸入框附近
         modal.pvError = failed || (pv && !(pv.title || pv.image || pv.description));
         paintPreview(); paintPlayer();
@@ -1162,14 +1260,40 @@
     function paintPlayer() {
       const box = q('.vd-player');
       const v = embedOf(model.url);
+      const custom = !!(model.preview && model.preview.custom);
+      const tools = '<div class="vd-player-tools">' +
+        (model.url && !v ? '<a class="btn btn-primary vd-player-open" href="' + esc(model.url) + '" target="_blank" rel="noopener noreferrer">' + ic('external-link') + '<span>開啟連結</span></a>' : '') +
+        '<button class="btn vd-player-up" type="button" title="自己選一張圖當縮圖（把圖片拖進來或 Ctrl+V 貼上也可以）">' + ic('upload') + '<span>' + (custom ? '換一張縮圖' : '上傳縮圖') + '</span></button>' +
+        (custom ? '<button class="btn vd-player-rev" type="button" title="刪掉自己上傳的這張' + (model.preview.image ? '，改用網站的圖' : '') + '">' + ic('x') + '<span>' + (model.preview.image ? '改用網站的圖' : '移除自訂縮圖') + '</span></button><span class="vd-player-note">自訂縮圖</span>' : '') +
+        '</div>';
       if (v) {
-        box.innerHTML = '<div class="vd-player-frame"><iframe src="' + esc(v.src) + '" title="影片" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" loading="lazy"></iframe></div>';
+        box.innerHTML = '<div class="vd-player-frame"><iframe src="' + esc(v.src) + '" title="影片" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" loading="lazy"></iframe></div>' + tools;
         return;
       }
-      box.innerHTML = thumbHTML(model, 'vd-player-thumb') +
-        (model.url ? '<a class="btn btn-primary vd-player-open" href="' + esc(model.url) + '" target="_blank" rel="noopener noreferrer">' + ic('external-link') + '<span>開啟連結</span></a>' : '');
+      box.innerHTML = thumbHTML(model, 'vd-player-thumb') + tools;
       hydrate(box);
     }
+    // 自己上傳縮圖：按鈕選檔、拖一張圖到左欄、或對話框開著時 Ctrl+V 貼圖
+    function takeThumb(file) {
+      if (!file) return;
+      uploadThumb(isNew ? null : note, model, file).then(function (ok) {
+        if (!ok || !modal || modal.overlay !== ov) return;
+        if (!isNew) apply();
+        paintPlayer();
+        toast('縮圖已換成你上傳的');
+      });
+    }
+    const playerBox = q('.vd-player');
+    playerBox.addEventListener('click', function (e) {
+      if (e.target.closest('.vd-player-up')) pickFile(takeThumb);
+      else if (e.target.closest('.vd-player-rev')) { revertThumb(isNew ? null : note, model); if (!isNew) apply(); paintPlayer(); }
+    });
+    const leftCol = q('.vd-m-left');
+    leftCol.addEventListener('dragover', function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') >= 0) { e.preventDefault(); leftCol.classList.add('is-drop'); } });
+    leftCol.addEventListener('dragleave', function () { leftCol.classList.remove('is-drop'); });
+    leftCol.addEventListener('drop', function (e) { leftCol.classList.remove('is-drop'); const f = imageFileOf(e.dataTransfer); if (f) { e.preventDefault(); takeThumb(f); } });
+    modal.onPaste = function (e) { const f = imageFileOf(e.clipboardData); if (f) { e.preventDefault(); takeThumb(f); } };
+    document.addEventListener('paste', modal.onPaste, true);
     paintPlayer(); paintPreview();
     if (!isNew) paintWatches();
 
@@ -1180,6 +1304,7 @@
         if (!model.url && !title) return;
         const btn = q('.vd-m-create'); btn.disabled = true;
         O.onCreate({ title: title, content: generate(model) }).then(function (n) {
+          if (modal && modal.overlay === ov) modal.created = true;   // 自訂縮圖已經屬於這部影片，關閉時不刪
           closeModal(true);
           // 從觀察區來的：影片建好了，那個連結就不用留著
           if (init.fromWatch && O.onDeleteNow) O.onDeleteNow(init.fromWatch).catch(function () {});
@@ -1267,11 +1392,19 @@
     if (!modal) return;
     const m = modal; modal = null;
     document.removeEventListener('keydown', onModalKey, true);
+    if (m.onPaste) document.removeEventListener('paste', m.onPaste, true);
     if (urlTimer) { clearTimeout(urlTimer); urlTimer = null; }
     m.overlay.remove();
+    // 新增對話框取消了：上傳過的自訂縮圖沒有影片可以掛，直接刪掉
+    if (m.isNew && !m.created && m.model.preview && m.model.preview.custom) dropImage(m.model.preview.imageId);
     if (flush && m.note && saveTimers.has(m.note.id)) { clearTimeout(saveTimers.get(m.note.id)); saveTimers.delete(m.note.id); if (O && O.onSave) O.onSave(m.note); }
   }
-  function open(id) { const n = byId(id); if (n) openModal(n); }
+  function open(id) {
+    const n = byId(id);
+    if (n) { openModal(n); return; }
+    const pn = personNotes().find(function (x) { return x.id === id; });   // #note/<人物資料> → 她的頁面
+    if (pn) { const nm = parsePerson(pn.content).name; if (nm) openPerson(nm); }
+  }
   function saved(note) {
     // app.js 存檔回來：對話框開著就把狀態列改成「已儲存」
     if (modal && modal.note && modal.note.id === note.id) { const s = modal.overlay.querySelector('.vd-m-status'); if (s) s.textContent = '已儲存'; }
@@ -1689,9 +1822,13 @@
     ensureStored();
     if (!O || !O.onPerson || avatarJob) return;
     avatarJob = (async function () {
+      // 先讓出一次：第一輪就沒事做（同步 break）的話，finally 會在 avatarJob 被指定「之前」清掉它，
+      // 然後指定把已結束的 promise 留在 avatarJob 裡，之後每次 ensureAvatars 都以為還在跑而直接返回
+      await null;
       try {
         while (host) {
-          const todo = peopleIndex().filter(function (p) { return (!p.avatar || !p.verified) && !avatarMiss[p.key]; });
+          // 沒有影片的（只剩使用者寫的資料）不用查：查到的照片也沒有影片可以存
+          const todo = peopleIndex().filter(function (p) { return p.videos.length && (!hasPhoto(p) || !p.verified) && !avatarMiss[p.key]; });
           if (!todo.length) break;
           // 沒驗過的先（它們在畫面上是隱藏的），再來是驗過但缺照片的
           todo.sort(function (a, b) { return (a.verified ? 1 : 0) - (b.verified ? 1 : 0); });
@@ -1716,27 +1853,43 @@
       } finally { avatarJob = null; }
     })();
   }
-  function applyPerson(p, info) {
-    const newName = (info.matched && typeof info.name === 'string' && info.name.trim() && info.name.trim() !== p.name) ? info.name.trim().slice(0, 60) : p.name;
-    const image = safeUrl(info.image);
-    let stored = false, marked = false;
+  // 整庫改名：每部影片的人物原地換掉（新名字已經在那部裡就把舊的拿掉），照片、驗過的標記、別名、作品數
+  // 跟著搬；使用者的資料筆記也改名。回有沒有改到任何一部
+  function renamePerson(key, newName) {
+    let changed = false;
     notes().forEach(function (n) {
       const m = liveModel(n);
-      const idx = m.actors.findIndex(function (a) { return a.toLowerCase() === p.key; });
-      if (idx < 0) return;
-      let changed = false;
-      if (newName !== p.name) {
-        // 改名：已經有這個新名字就把舊的拿掉，否則原地換掉；照片、驗過的標記跟著搬
-        const dup = m.actors.findIndex(function (a, i) { return i !== idx && a.toLowerCase() === newName.toLowerCase(); });
-        if (dup >= 0) m.actors.splice(idx, 1); else m.actors[idx] = newName;
-        [m.avatars, m.avatarIds, m.verified, m.aliases, m.works].forEach(function (map) {
-          Object.keys(map).forEach(function (k) { if (k.toLowerCase() === p.key) { const v = map[k]; delete map[k]; if (!map[newName]) map[newName] = v; } });
+      const idx = m.actors.findIndex(function (a) { return a.toLowerCase() === key; });
+      if (idx < 0 || m.actors[idx] === newName) return;
+      const dup = m.actors.findIndex(function (a, i) { return i !== idx && a.toLowerCase() === newName.toLowerCase(); });
+      if (dup >= 0) m.actors.splice(idx, 1); else m.actors[idx] = newName;
+      [m.avatars, m.avatarIds, m.verified, m.aliases, m.works].forEach(function (map) {
+        Object.keys(map).forEach(function (k) {
+          if (k.toLowerCase() !== key || k === newName) return;
+          const v = map[k]; delete map[k];
+          if (!map[newName]) map[newName] = v; else if (map === m.avatarIds) dropImage(v);   // 兩邊都有存圖：多的那張刪掉
         });
-        changed = true;
-      }
+      });
+      write(n, m); if (O.onSave) O.onSave(n); changed = true;
+    });
+    const pn = personNoteOf(key);
+    if (pn) { const pr = parsePerson(pn.content); pr.name = newName; pn.content = generatePerson(pr); pn.title = newName; if (O.onSave) O.onSave(pn); changed = true; }
+    return changed;
+  }
+  function applyPerson(p, info) {
+    // 使用者自己編輯過這個人（有資料筆記）就不自動改名——她取的名字算數
+    const taken = !!personNoteOf(p.key);
+    const newName = (!taken && info.matched && typeof info.name === 'string' && info.name.trim() && info.name.trim() !== p.name) ? info.name.trim().slice(0, 60) : p.name;
+    const image = safeUrl(info.image);
+    let stored = false, marked = false;
+    if (newName !== p.name) renamePerson(p.key, newName);
+    notes().forEach(function (n) {
+      const m = liveModel(n);
+      let changed = false;
       const has = m.actors.some(function (a) { return a.toLowerCase() === newName.toLowerCase(); });
+      if (!has) return;
       if (image && !stored && has) {
-        if (m.avatars[newName] !== image) { m.avatars[newName] = image; delete m.avatarIds[newName]; }
+        if (m.avatars[newName] !== image) { m.avatars[newName] = image; dropImage(m.avatarIds[newName]); delete m.avatarIds[newName]; }
         stored = true; changed = true;
       }
       if (!marked && has) {
@@ -1751,8 +1904,10 @@
     if (newName !== p.name) toast('人物「' + p.name + '」改名為「' + newName + '」');
     return newName !== p.name;
   }
-  // 把一個人物從所有影片拿掉（人物、照片、標記），存進系統的照片也刪
+  // 把一個人物從所有影片拿掉（人物、照片、標記），存進系統的照片也刪；使用者寫的資料筆記一起硬刪
   function removePerson(key, name) {
+    const pn = personNoteOf(key);
+    if (pn) { dropImage(parsePerson(pn.content).imageId); if (O.onDeleteNow) O.onDeleteNow(pn).catch(function () {}); }
     notes().forEach(function (n) {
       const m = liveModel(n);
       const idx = m.actors.findIndex(function (a) { return a.toLowerCase() === key; });
@@ -1795,6 +1950,7 @@
   function ensureStored() {
     if (!O || !O.onStoreImage || storeJob) return;
     storeJob = (async function () {
+      await null;   // 同 ensureAvatars：第一輪就 break 的話 finally 會跑在指定之前，storeJob 就卡著不再跑
       try {
         while (host) {
           let task = null;
@@ -1836,14 +1992,34 @@
   }
 
   // ---------------- 人物誌：有出現過的人物自動列出 ----------------
+  function avatarHTML(p, cls) {
+    return '<div class="' + cls + (hasPhoto(p) ? '' : ' is-empty') + '">' +
+      (hasPhoto(p) ? imgTag(srcOf(p.avatar, p.avatarId), p.avatar ? proxied(p.avatar) : '', '', p.avatarId) : '') +
+      '<span class="vd-person-ph">' + esc(p.name.slice(0, 1)) + '</span></div>';
+  }
+  // 重新找照片：把現在這張（資料庫的或自己上傳的）刪掉、清掉驗過的標記，背景查核會再去資料庫找一次
+  function refindPhoto(p) {
+    delete avatarMiss[p.key];
+    notes().forEach(function (n) {
+      const m = liveModel(n);
+      const k = Object.keys(m.avatars).find(function (a) { return a.toLowerCase() === p.key; });
+      if (!k) return;
+      if (m.avatarIds[k]) dropImage(m.avatarIds[k]);
+      delete m.avatars[k]; delete m.avatarIds[k]; delete m.verified[k];
+      write(n, m); if (O.onSave) O.onSave(n);
+    });
+    const pn = personNoteOf(p.key);
+    if (pn) {
+      const pr = parsePerson(pn.content);
+      if (pr.imageId) { dropImage(pr.imageId); pr.imageId = ''; pn.content = generatePerson(pr); if (O.onSave) O.onSave(pn); }
+    }
+  }
   function personCard(p) {
     const card = el('article', 'vd-person');
     card.setAttribute('data-key', p.key);
     card.tabIndex = 0;
     card.innerHTML =
-      '<div class="vd-person-av' + (p.avatar ? '' : ' is-empty') + '">' +
-      (p.avatar ? imgTag(srcOf(p.avatar, p.avatarId), proxied(p.avatar), '', p.avatarId) : '') +
-      '<span class="vd-person-ph">' + esc(p.name.slice(0, 1)) + '</span></div>' +
+      avatarHTML(p, 'vd-person-av') +
       '<div class="vd-person-name" title="' + esc(p.name + (p.aliases.length ? '（' + p.aliases.join('、') + '）' : '')) + '">' + esc(p.name) + '</div>' +
       '<div class="vd-person-meta">' + p.videos.length + ' 部・看過 ' + p.watches + ' 次</div>' +
       (p.last ? '<div class="vd-person-last">最近看：' + esc(fmtDay(p.last)) + '</div>' : '');
@@ -1853,19 +2029,12 @@
     return card;
   }
   function personMenu(p, x, y) {
-    menuAt(x, y, [['open', '打開這個人的頁面'], ['videos', '在清單裡篩選她的影片'], ['photo', '重新找照片'], null, ['remove', '從所有影片拿掉', false, true]], function (a) {
+    menuAt(x, y, [['open', '打開這個人的頁面'], ['edit', '編輯資料…'], ['videos', '在清單裡篩選她的影片'], ['photo', '重新找照片'], null, ['remove', '從所有影片拿掉', false, true]], function (a) {
       if (a === 'open') openPerson(p.key);
+      else if (a === 'edit') openPersonEdit(p);
       else if (a === 'videos') setFilter('actor', p.name);
       else if (a === 'photo') {
-        delete avatarMiss[p.key];
-        notes().forEach(function (n) {
-          const m = liveModel(n);
-          const k = Object.keys(m.avatars).find(function (a) { return a.toLowerCase() === p.key; });
-          if (!k) return;
-          if (m.avatarIds[k]) dropImage(m.avatarIds[k]);   // 舊照片從系統裡刪掉
-          delete m.avatars[k]; delete m.avatarIds[k]; delete m.verified[k];
-          write(n, m); if (O.onSave) O.onSave(n);
-        });
+        refindPhoto(p);
         if (view === 'people' || view === 'person') paint();
       } else if (a === 'remove') {
         removePerson(p.key, p.name);
@@ -1884,13 +2053,13 @@
     wrap.innerHTML =
       '<div class="vd-pp-head">' +
       '<button class="btn vd-pp-back" type="button">' + ic('arrow-left') + '<span>人物誌</span></button>' +
-      '<div class="vd-person-av vd-pp-av' + (p.avatar ? '' : ' is-empty') + '" title="照片">' +
-      (p.avatar ? imgTag(srcOf(p.avatar, p.avatarId), proxied(p.avatar), '', p.avatarId) : '') +
-      '<span class="vd-person-ph">' + esc(p.name.slice(0, 1)) + '</span></div>' +
+      avatarHTML(p, 'vd-person-av vd-pp-av') +
       '<div class="vd-pp-main"><h2 class="vd-pp-name">' + esc(p.name) + '</h2>' +
-      '<div class="vd-pp-meta">' + p.videos.length + ' 部影片・看過 ' + p.watches + ' 次' + (lw ? '・最近看 ' + esc(fmtDay(lw)) : '・還沒看過') + (p.works ? '・資料庫上 ' + p.works + ' 部作品' : '') + '</div>' +
+      '<div class="vd-pp-meta">' + p.videos.length + ' 部影片・看過 ' + p.watches + ' 次' + (lw ? '・最近看 ' + esc(fmtDay(lw)) : '・還沒看過') + (p.works ? '・資料庫上 ' + p.works + ' 部作品' : '') + (p.custom ? '・自訂照片' : '') + '</div>' +
       (p.aliases.length ? '<div class="vd-pp-alias">別名：' + esc(p.aliases.join('、')) + '</div>' : '') +
+      (p.note ? '<div class="vd-pp-note">' + esc(p.note) + '</div>' : '') +
       '<div class="vd-pp-acts">' +
+      '<button class="btn vd-pp-edit" type="button">' + ic('pencil') + '<span>編輯資料</span></button>' +
       '<button class="btn vd-pp-filter" type="button">' + ic('list') + '<span>在清單裡篩選</span></button>' +
       '<button class="btn vd-pp-photo" type="button">' + ic('refresh-cw') + '<span>重新找照片</span></button>' +
       '<button class="btn btn-danger vd-pp-remove" type="button">' + ic('trash') + '<span>從所有影片拿掉</span></button>' +
@@ -1903,18 +2072,8 @@
     cardVk = null;
     wrap.querySelector('.vd-pp-back').addEventListener('click', function () { setView('people'); });
     wrap.querySelector('.vd-pp-filter').addEventListener('click', function () { setFilter('actor', p.name); });
-    wrap.querySelector('.vd-pp-photo').addEventListener('click', function () {
-      delete avatarMiss[p.key];
-      notes().forEach(function (n) {
-        const m = liveModel(n);
-        const k = Object.keys(m.avatars).find(function (a) { return a.toLowerCase() === p.key; });
-        if (!k) return;
-        if (m.avatarIds[k]) dropImage(m.avatarIds[k]);
-        delete m.avatars[k]; delete m.avatarIds[k]; delete m.verified[k];
-        write(n, m); if (O.onSave) O.onSave(n);
-      });
-      paint();
-    });
+    wrap.querySelector('.vd-pp-edit').addEventListener('click', function () { openPersonEdit(p); });
+    wrap.querySelector('.vd-pp-photo').addEventListener('click', function () { refindPhoto(p); paint(); });
     wrap.querySelector('.vd-pp-remove').addEventListener('click', function () {
       removePerson(p.key, p.name);
       toast('已把「' + p.name + '」從所有影片拿掉');
@@ -1922,6 +2081,106 @@
     });
     // 照片有了／改名了就重畫這一頁
     ensureAvatars(function (q, info, changed) { if (view === 'person' && host && (changed || (q.key === personKey && info && !info.error))) paint(); });
+  }
+  // ---------------- 編輯人物資料：名字、自訂別名、自訂照片、備註 ----------------
+  // 存成那個人自己的資料筆記（meta.person，見 isPerson）：改名會整庫改（renamePerson），照片在選檔時就
+  // 先存進系統（取消就刪掉），其餘按「儲存」才寫。只有查核過的人物才進得來（人物誌只列她們）。
+  let pedit = null;   // { overlay, newId }
+  function closePersonEdit(keep) {
+    if (!pedit) return;
+    const pe = pedit; pedit = null;
+    document.removeEventListener('keydown', onPersonEditKey, true);
+    pe.overlay.remove();
+    if (!keep && pe.newId) dropImage(pe.newId);   // 取消：這次新上傳的照片沒人用，刪掉
+  }
+  function onPersonEditKey(e) {
+    if (e.key !== 'Escape' || !pedit || menuEl) return;
+    e.preventDefault(); e.stopPropagation();
+    closePersonEdit(false);
+  }
+  function openPersonEdit(p) {
+    closeMenu(); closePersonEdit(false);
+    const pn = personNoteOf(p.key);
+    const pr = pn ? parsePerson(pn.content) : { name: p.name, aliases: [], note: '', imageId: '', added: today() };
+    const mine = function (a) { return pr.aliases.some(function (x) { return x.toLowerCase() === a.toLowerCase(); }); };
+    const dbAliases = p.aliases.filter(function (a) { return !mine(a); });   // 資料庫給的，唯讀
+    const ov = el('div', 'vd-overlay');
+    ov.innerHTML =
+      '<div class="vd-modal vd-pe-modal" role="dialog" aria-modal="true" aria-label="編輯人物資料">' +
+      '<div class="vd-m-head">' + ic('pencil') + '<span class="vd-bt-title">編輯人物資料</span>' +
+      '<button class="icon-btn vd-m-close" type="button" title="關閉 (Esc)">' + ic('x') + '</button></div>' +
+      '<div class="vd-pe-body">' +
+      '<div class="vd-pe-left">' +
+      '<button class="vd-pe-avbtn" type="button" title="換照片">' + avatarHTML(p, 'vd-person-av vd-pe-av') + '<span class="vd-pe-avhint">' + ic('upload') + '</span></button>' +
+      '<button class="btn vd-pe-up" type="button">' + ic('upload') + '<span>上傳照片</span></button>' +
+      '<button class="btn vd-pe-clear" type="button"' + (p.custom ? '' : ' hidden') + '>' + ic('x') + '<span>移除自訂照片</span></button>' +
+      '<span class="vd-pe-hint">照片會縮小後存在系統裡，不會出現在檔案管理；拖一張圖進來也可以</span>' +
+      '</div>' +
+      '<div class="vd-pe-right">' +
+      '<label class="vd-f"><span class="vd-f-l">名字</span><input class="tt-input vd-pe-name" type="text" value="' + esc(pr.name || p.name) + '" maxlength="60" spellcheck="false"></label>' +
+      '<label class="vd-f"><span class="vd-f-l">自訂別名</span><input class="tt-input vd-pe-alias" type="text" value="' + esc(pr.aliases.join('、')) + '" placeholder="用「、」或逗號分開" maxlength="600" spellcheck="false"></label>' +
+      (dbAliases.length ? '<div class="vd-f vd-f-added"><span class="vd-f-l">資料庫別名</span><span>' + esc(dbAliases.join('、')) + '</span></div>' : '') +
+      '<label class="vd-f"><span class="vd-f-l">備註</span><textarea class="tt-input vd-pe-note" rows="6" placeholder="生日、身高、喜歡的作品…想記什麼都可以" maxlength="5000">' + esc(pr.note) + '</textarea></label>' +
+      '<div class="vd-f vd-f-added"><span class="vd-f-l">影片</span><span>' + p.videos.length + ' 部' + (p.works ? '・資料庫上 ' + p.works + ' 部作品' : '') + '</span></div>' +
+      '</div></div>' +
+      '<div class="vd-m-foot"><span class="vd-m-hint">改名會套用到她的每一部影片；改過名字的人不再自動換成資料庫的名字</span><span class="vd-m-sp"></span>' +
+      '<button class="btn vd-pe-cancel" type="button">取消</button>' +
+      '<button class="btn btn-primary vd-pe-save" type="button">' + ic('check') + '<span>儲存</span></button></div></div>';
+    document.body.appendChild(ov);
+    pedit = { overlay: ov, newId: '', cleared: false };
+    const q = function (s) { return ov.querySelector(s); };
+    hydrate(ov);
+    function showPhoto(id) {
+      const box = q('.vd-pe-av');
+      box.innerHTML = (id ? imgTag('', '', '', id) : '') + '<span class="vd-person-ph">' + esc(p.name.slice(0, 1)) + '</span>';
+      box.classList.toggle('is-empty', !id);
+      hydrate(box);
+      q('.vd-pe-clear').hidden = !(id && (pedit.newId || (!pedit.cleared && pr.imageId)));
+    }
+    function takePhoto(file) {
+      storeFile(file, 240).then(function (id) {
+        if (!id) return;
+        if (!pedit || pedit.overlay !== ov) { dropImage(id); return; }
+        if (pedit.newId) dropImage(pedit.newId);
+        pedit.newId = id; pedit.cleared = false;
+        showPhoto(id);
+      });
+    }
+    q('.vd-pe-up').addEventListener('click', function () { pickFile(takePhoto); });
+    q('.vd-pe-avbtn').addEventListener('click', function () { pickFile(takePhoto); });
+    q('.vd-pe-clear').addEventListener('click', function () {
+      if (pedit.newId) { dropImage(pedit.newId); pedit.newId = ''; }
+      pedit.cleared = true;
+      // 自訂照片拿掉後顯示資料庫那張（有的話）
+      showPhoto(p.custom ? '' : p.avatarId);
+      if (!p.custom && p.avatar && !p.avatarId) { const box = q('.vd-pe-av'); box.innerHTML = imgTag(proxied(p.avatar), '', '', '') + '<span class="vd-person-ph">' + esc(p.name.slice(0, 1)) + '</span>'; box.classList.remove('is-empty'); }
+    });
+    ov.addEventListener('dragover', function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') >= 0) { e.preventDefault(); ov.classList.add('is-drop'); } });
+    ov.addEventListener('dragleave', function () { ov.classList.remove('is-drop'); });
+    ov.addEventListener('drop', function (e) { ov.classList.remove('is-drop'); const f = imageFileOf(e.dataTransfer); if (f) { e.preventDefault(); takePhoto(f); } });
+    q('.vd-m-close').addEventListener('click', function () { closePersonEdit(false); });
+    q('.vd-pe-cancel').addEventListener('click', function () { closePersonEdit(false); });
+    ov.addEventListener('mousedown', function (e) { if (e.target === ov) closePersonEdit(false); });
+    q('.vd-pe-save').addEventListener('click', function () {
+      const name = q('.vd-pe-name').value.trim().slice(0, 60) || p.name;
+      const aliases = cleanList(q('.vd-pe-alias').value.split(/[、,，;；\n]/), 20, 60).filter(function (a) { return a.toLowerCase() !== name.toLowerCase(); });
+      const note = q('.vd-pe-note').value.slice(0, 5000);
+      const imageId = pedit.newId || (pedit.cleared ? '' : pr.imageId);
+      if (pr.imageId && imageId !== pr.imageId) dropImage(pr.imageId);
+      closePersonEdit(true);
+      if (name !== p.name) renamePerson(p.key, name);
+      if (view === 'person') personKey = name.toLowerCase();   // 建立資料筆記時 app.js 會重畫一次，先指到新名字
+      const data = { name: name, aliases: aliases, note: note, imageId: imageId, added: pr.added };
+      const done = function () { if (view === 'person' || view === 'people' || view === 'graph') paint(); else refresh(); toast('已儲存人物資料'); };
+      const live = personNoteOf(name.toLowerCase()) || pn;
+      if (live) { live.content = generatePerson(data); live.title = name; if (O.onSave) O.onSave(live); done(); }
+      else if (aliases.length || note || imageId || name !== p.name) {
+        if (!O.onCreate) return;
+        O.onCreate({ title: name, content: generatePerson(data), meta: { video: true, person: true } }).then(done, function () { if (imageId) dropImage(imageId); });
+      } else done();
+    });
+    document.addEventListener('keydown', onPersonEditKey, true);
+    setTimeout(function () { q('.vd-pe-name').focus(); }, 30);
   }
   function paintPeople(body) {
     const all = peopleIndex();
@@ -1938,7 +2197,7 @@
     function statusText() {
       const idx = peopleIndex();
       const pend = idx.filter(function (x) { return !x.verified && !avatarMiss[x.key]; }).length;
-      const missing = idx.filter(function (x) { return x.verified && !x.avatar && !avatarMiss[x.key]; }).length;
+      const missing = idx.filter(function (x) { return x.verified && x.videos.length && !hasPhoto(x) && !avatarMiss[x.key]; }).length;
       return (pend ? '查核中 ' + pend + ' 位（確認前不顯示）' : '') + (pend && missing ? '・' : '') + (missing ? '正在找 ' + missing + ' 位的照片…' : '');
     }
     function fill() {
@@ -1957,7 +2216,7 @@
       if (changed || !p.verified) { paint(); return; }
       const fresh = peopleIndex().find(function (x) { return x.key === p.key; });
       const old = grid.querySelector('.vd-person[data-key="' + CSS.escape(p.key) + '"]');
-      if (fresh && old && fresh.avatar !== p.avatar) { const c = personCard(fresh); old.replaceWith(c); hydrate(c); }
+      if (fresh && old && (fresh.avatar !== p.avatar || fresh.avatarId !== p.avatarId)) { const c = personCard(fresh); old.replaceWith(c); hydrate(c); }
       if (fresh) Object.assign(p, fresh);
       st.textContent = statusText();
     });
@@ -1980,6 +2239,12 @@
         edge(v.id, 'a:' + a.toLowerCase(), 'actor');
       });
       m.tags.forEach(function (t) { node('t:' + t.toLowerCase(), 'tag', '#' + t); edge(v.id, 't:' + t.toLowerCase(), 'tag'); });
+    });
+    // 使用者自己上傳的人物照片蓋過資料庫的
+    personNotes().forEach(function (n) {
+      const pr = parsePerson(n.content);
+      const an = pr.name && byIdx['a:' + pr.name.toLowerCase()];
+      if (an && pr.imageId) an.image = urlMap[pr.imageId] || srcOf('', pr.imageId);
     });
     return { nodes: nodes, edges: edges };
   }
@@ -2105,7 +2370,7 @@
 
   global.Videos = {
     render: render, refresh: refresh, open: open, teardown: teardown, saved: saved,
-    isNote: isNote, isWatch: isWatch, parse: parse, generate: generate, parseWatch: parseWatch, generateWatch: generateWatch,
+    isNote: isNote, isWatch: isWatch, isPerson: isPerson, parse: parse, generate: generate, parseWatch: parseWatch, generateWatch: generateWatch, parsePerson: parsePerson, generatePerson: generatePerson,
     blockHTML: blockHTML, stats: stats, buildGraph: buildGraph, parseBatch: parseBatch, peopleIndex: peopleIndex, dropNoteImages: dropNoteImages,
     isOpen: function () { return !!modal; }
   };
