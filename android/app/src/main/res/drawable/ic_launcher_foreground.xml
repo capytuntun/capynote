@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- logo.png 是黑色的 capybara 記號（跟網站頂列同一張）；adaptive icon 的外圈會被遮罩切掉，
+     所以往內縮 22% 讓記號落在安全區裡。 -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/logo"
+    android:inset="22%" />

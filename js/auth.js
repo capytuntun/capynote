@@ -216,6 +216,13 @@
       closeMenu();
       if (global.Backup) Backup.open({ isAdmin: !!(currentUser && currentUser.role === 'admin') });
     });
+    // Android APP（android/ 的 WebView 殼）：window.capynoteAndroid 是它注入的原生橋接，
+    // 有的話多一個「APP 設定」進原生的設定頁（改伺服器網址、清登入）；瀏覽器裡永遠看不到。
+    const androidBtn = $('#android-settings-btn');
+    if (androidBtn && global.capynoteAndroid && typeof global.capynoteAndroid.openSettings === 'function') {
+      androidBtn.hidden = false;
+      androidBtn.addEventListener('click', function () { closeMenu(); global.capynoteAndroid.openSettings(); });
+    }
 
     Store.ready().then(function (r) {
       registerMode = r.registerMode || 'invite';

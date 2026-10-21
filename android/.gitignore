@@ -1,0 +1,19 @@
+# Gradle / Android 建置輸出
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+local.properties
+.cxx/
+captures/
+
+# 簽章金鑰與密碼——絕對不要入庫
+keystore.properties
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.kotlin/

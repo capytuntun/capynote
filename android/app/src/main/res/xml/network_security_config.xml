@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 允許 http://（明文）：自架在區網、還沒接 TLS 時也能用；設定頁會對 http 網址顯示警告。
+     正式環境請一律用 https（cloudflared / 反向代理）。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

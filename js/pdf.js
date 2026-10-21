@@ -12,6 +12,15 @@
     return location.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '');
   }
 
+  // Android APP（android/）：WebView 對 iframe 的 window.print() 沒反應，原生端提供
+  // capynoteAndroid.printHtml(html, extraCss, title) 走系統的列印／另存 PDF。
+  // 回 true 表示已交給原生端；瀏覽器裡永遠回 false。
+  function androidPrint(html, extraCss, title) {
+    const b = global.capynoteAndroid;
+    if (!b || typeof b.printHtml !== 'function' || !html) return false;
+    try { b.printHtml(html, extraCss || '', title || ''); return true; } catch (e) { return false; }
+  }
+
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
   function formatDate(ts) {
     const d = new Date(ts);
@@ -973,6 +982,7 @@
 
     // ---- render ----
     let renderToken = 0;
+    let lastDoc = null;           // { html, wm } of the latest render, for androidPrint()
     function render() {
       const mine = ++renderToken;
       pages.textContent = '排版中…';
@@ -989,7 +999,11 @@
         parts.coverImages = imgs;
         // document.write (rather than srcdoc) keeps the frame same-origin, so the
         // vendor script loads under the app's own policy.
-        boot(frame.contentDocument, buildDoc(parts, opts), opts, function (doc) {
+        const html = buildDoc(parts, opts);
+        // Android APP 列印用：WebView 不理 iframe 的 window.print()，改把排版前的 HTML 交給原生端
+        // 重做同一套 paged.js 流程（android/…/Printer.kt）；浮水印 CSS 跟 boot() 一樣排版後才補
+        lastDoc = { html: html, wm: watermarkCSS(opts.watermark, themeById(opts.theme)) };
+        boot(frame.contentDocument, html, opts, function (doc) {
           if (mine !== renderToken) return;   // a newer render superseded this one
           const n = doc.querySelectorAll('.pagedjs_page').length;
           pages.textContent = (n ? '共 ' + n + ' 頁' : '') +
@@ -1055,6 +1069,7 @@
     });
 
     print.addEventListener('click', function () {
+      if (androidPrint(lastDoc && lastDoc.html, lastDoc && lastDoc.wm, parts.title)) return;
       frame.contentWindow.focus();
       frame.contentWindow.print();
     });
@@ -1110,7 +1125,10 @@
       print.disabled = false;
       if (o.onReady) o.onReady(doc, n);
     });
-    print.addEventListener('click', function () { frame.contentWindow.focus(); frame.contentWindow.print(); });
+    print.addEventListener('click', function () {
+      if (androidPrint(html, '', o.title)) return;
+      frame.contentWindow.focus(); frame.contentWindow.print();
+    });
     function close() { token = 0; overlay.remove(); document.removeEventListener('keydown', onKey, true); if (o.onClose) o.onClose(); }
     function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
     document.addEventListener('keydown', onKey, true);

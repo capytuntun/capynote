@@ -127,6 +127,8 @@
             <button id="storage-btn" class="user-menu-item" role="menuitem" hidden data-icon="activity">系統監控</button>
             <!-- 備份與還原（js/backup.js）：一個 zip 帶走全部資料，上傳同一個 zip 還原 -->
             <button id="backup-btn" class="user-menu-item" role="menuitem" data-icon="save">備份與還原</button>
+            <!-- Android APP（android/）才看得到：改伺服器網址、清登入；js/auth.js 偵測 window.capynoteAndroid 才顯示 -->
+            <button id="android-settings-btn" class="user-menu-item" role="menuitem" hidden data-icon="settings">APP 設定</button>
             <div class="user-menu-sep" role="separator"></div>
             <button id="logout-btn" class="user-menu-item danger" role="menuitem" data-icon="log-out">登出</button>
           </div>
@@ -416,7 +418,7 @@
   <script src="js/drawio.js?v=8"></script>
   <script src="js/graph.js?v=14"></script>
   <script src="js/store.js?v=70"></script>
-  <script src="js/auth.js?v=50"></script>
+  <script src="js/auth.js?v=51"></script>
   <script src="js/migrate.js?v=41"></script>
   <script src="js/admin.js?v=51"></script>
   <script src="js/backup.js?v=2"></script>
@@ -445,7 +447,7 @@
   <script src="js/doc.js?v=6"></script>
   <script src="js/annotate.js?v=42"></script>
   <script src="js/cover.js?v=1"></script>
-  <script src="js/pdf.js?v=70"></script>
+  <script src="js/pdf.js?v=72"></script>
   <script src="js/book.js?v=13"></script>
   <script src="js/versions.js?v=7"></script>
   <script src="js/trash.js?v=12"></script>

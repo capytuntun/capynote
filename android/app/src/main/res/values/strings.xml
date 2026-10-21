@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">capynote</string>
+    <string name="settings_title">APP 設定</string>
+    <string name="server_label">伺服器網址</string>
+    <string name="server_hint">https://notes.example.com</string>
+    <string name="server_help">輸入你架設 capynote 的網址（跟瀏覽器打開的一樣）。帳號、筆記、檔案都直接從這台伺服器讀寫，跟網站完全同步。</string>
+    <string name="btn_test">測試連線</string>
+    <string name="btn_save">儲存並連線</string>
+    <string name="btn_reload">重新載入頁面</string>
+    <string name="btn_clear">清除登入與快取</string>
+    <string name="clear_title">清除登入與快取？</string>
+    <string name="clear_msg">會登出這支手機上的帳號並清掉網頁快取；伺服器上的筆記不受影響。</string>
+    <string name="cleared">已清除，下次開啟會回到登入畫面</string>
+    <string name="testing">連線中…</string>
+    <string name="test_ok">連線成功：這是一台 capynote 伺服器</string>
+    <string name="test_not_capynote">有回應，但看起來不是 capynote（/api/health 回 %1$d）</string>
+    <string name="test_fail">連不上：%1$s</string>
+    <string name="url_invalid">網址格式不對，要像 https://notes.example.com</string>
+    <string name="url_http_warn">⚠ http:// 沒有加密，只建議在區網測試時使用</string>
+    <string name="error_title">連不上伺服器</string>
+    <string name="error_hint">請確認網路，或伺服器網址是否正確。</string>
+    <string name="btn_retry">重試</string>
+    <string name="btn_change_server">更改伺服器</string>
+    <string name="download_started">開始下載：%1$s</string>
+    <string name="download_saved">已存到「下載」：%1$s</string>
+    <string name="download_failed">下載失敗：%1$s</string>
+    <string name="no_app_for_link">手機上沒有能開啟這個連結的 APP</string>
+    <string name="print_preparing">正在排版，稍後會跳出列印／另存 PDF…</string>
+    <string name="version_fmt">capynote Android %1$s</string>
+    <string name="back_to_exit">再按一次返回鍵離開</string>
+</resources>

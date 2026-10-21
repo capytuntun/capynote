@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 跟 app.css 的 bg 變數一樣：淺色 #ffffff、深色 #13161c（values-night） -->
+    <color name="bg">#FFFFFFFF</color>
+    <color name="bg_dark">#FF13161C</color>
+    <color name="text">#FF1F2328</color>
+    <color name="text_muted">#FF6E7781</color>
+    <color name="border">#FFD0D7DE</color>
+    <color name="accent">#FF1F6FEB</color>
+    <color name="ic_launcher_background">#FFFFFFFF</color>
+</resources>
