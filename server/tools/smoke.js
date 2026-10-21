@@ -557,6 +557,23 @@ async function main() {
       await call(admin, 'POST', '/api/notes/' + tt + '/restore');
     }
 
+    // 美食地圖（js/foodmap.js）：area 'foodmap'，同一套；內文是 ```foodmap 圍欄的 JSON
+    r = await call(admin, 'POST', '/api/notes', { title: '美食地圖', content: '```foodmap\n{"color":"#e0542c","places":[{"id":"p1","name":"阿宗麵線","address":"台北市萬華區峨眉街8-1號","source":"朋友推薦","tags":["小吃","西門"],"lat":25.0436,"lng":121.5071}]}\n```\n', area: 'foodmap', meta: { foodmap: true } });
+    ok(r.status === 200 && r.data.note && r.data.note.area === 'foodmap', 'a food-map note is created in area foodmap', r.status);
+    if (r.status === 200) {
+      const fm = r.data.note.id;
+      r = await call(admin, 'PUT', '/api/notes/' + fm + '/area', { area: 'knowledge' });
+      ok(r.status === 400, 'a food map cannot be moved to another area', r.status);
+      r = await call(admin, 'DELETE', '/api/notes/' + fm);
+      r = await call(admin, 'GET', '/api/trash');
+      ok(r.data.notes.some(n => n.id === fm && n.kind === 'foodmap'), 'the trash lists it as kind foodmap');
+      await call(admin, 'POST', '/api/notes/' + fm + '/restore');
+    }
+    // 地理編碼代理：固定問 Nominatim；沒有網路或被限流也是 200 { error }，不會丟 500
+    r = await call(admin, 'GET', '/api/geocode?q=');
+    ok(r.status === 200 && r.data.error, 'geocode with an empty query answers 200 { error }', r.status);
+    r = await call(admin, 'GET', '/api/geocode?lat=abc&lng=1');
+    ok(r.status === 200 && r.data.error, 'reverse geocode with bad coordinates answers 200 { error }', r.status);
     // 課程進度（js/progress.js）：area 'progress'，同一套；內文是 ```progress 圍欄的 JSON
     r = await call(admin, 'POST', '/api/notes', { title: '課程一', content: '```progress\n{"color":"#d9962a","chapters":[{"id":"c1","title":"第一章","done":true},{"id":"c2","title":"第二章","due":"2026-10-20"}]}\n```\n', area: 'progress', meta: { progress: true } });
     ok(r.status === 200 && r.data.note && r.data.note.area === 'progress', 'a course-progress note is created in area progress', r.status);

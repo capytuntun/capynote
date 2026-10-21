@@ -76,6 +76,7 @@
     if (note.meta && note.meta.xmind) return 'mind-map';
     if (note.meta && note.meta.timetree) return 'calendar';
     if (note.meta && note.meta.progress) return 'list-checks';
+    if (note.meta && note.meta.foodmap) return 'utensils';
     if (note.meta && note.meta.doc) return 'file-pen';
     if (note.meta && note.meta.video) return 'film';
     if (note.area === 'quick') return 'pin';
@@ -148,6 +149,8 @@
         openTimeTree();
       } else if (location.hash === '#progress') {
         openProgress();
+      } else if (location.hash === '#foodmap') {
+        openFoodMap();
       } else if (areaFromHash() && areaFromHash().area === 'novel') {
         // 一定要先問過密碼才能進去，重新整理也一樣——openArea('novel') 本身就會擋下來彈窗。
         // 還沒解鎖時小說的資料夾不在 state.folders 裡，所以資料夾 id 直接從網址拿
@@ -213,7 +216,7 @@
       selectedFolders.clear();
     }
     // 樹顯示哪個區域，側邊欄那一列就亮著——包括正在編輯那個區域裡的一篇筆記的時候
-    ['course', 'knowledge', 'novel', 'quick', 'board', 'start', 'xmind', 'timetree', 'progress'].forEach(function (a) { setNavActive(a + '-open-btn', a === area); });
+    ['course', 'knowledge', 'novel', 'quick', 'board', 'start', 'xmind', 'timetree', 'progress', 'foodmap'].forEach(function (a) { setNavActive(a + '-open-btn', a === area); });
     renderTree();
   }
   // 新東西要建在哪個區域：有目標資料夾就跟資料夾（伺服器的 resolveArea 也是這樣要求的），
@@ -223,7 +226,7 @@
       const f = state.folders.find(function (x) { return x.id === folderId; });
       return f ? (f.area || null) : null;
     }
-    return treeArea && treeArea !== 'quick' && treeArea !== 'board' && treeArea !== 'start' && treeArea !== 'xmind' && treeArea !== 'timetree' && treeArea !== 'progress' ? treeArea : null;   // 看板、起始頁、心智圖、行事曆、課程進度只從自己的頁面建立
+    return treeArea && treeArea !== 'quick' && treeArea !== 'board' && treeArea !== 'start' && treeArea !== 'xmind' && treeArea !== 'timetree' && treeArea !== 'progress' && treeArea !== 'foodmap' ? treeArea : null;   // 看板、起始頁、心智圖、行事曆、課程進度、美食地圖只從自己的頁面建立
   }
   function withArea(folderId, opts) {
     const a = areaForNew(folderId);
@@ -246,7 +249,7 @@
     treeEl.innerHTML = '';
     // 在某個區域裡：樹的最上面標出這是哪個區域的內容，免得跟「所有筆記」的樹搞混
     if (treeArea) {
-      const info = treeArea === 'quick' ? { title: '隨筆', icon: 'pin' } : treeArea === 'board' ? { title: 'trello', icon: 'kanban' } : treeArea === 'start' ? { title: 'start.me', icon: 'layout-grid' } : treeArea === 'xmind' ? { title: 'xmind', icon: 'mind-map' } : treeArea === 'timetree' ? { title: 'timetree', icon: 'calendar' } : treeArea === 'progress' ? { title: '課程進度', icon: 'list-checks' } : AREA_INFO[treeArea];
+      const info = treeArea === 'quick' ? { title: '隨筆', icon: 'pin' } : treeArea === 'board' ? { title: 'trello', icon: 'kanban' } : treeArea === 'start' ? { title: 'start.me', icon: 'layout-grid' } : treeArea === 'xmind' ? { title: 'xmind', icon: 'mind-map' } : treeArea === 'timetree' ? { title: 'timetree', icon: 'calendar' } : treeArea === 'progress' ? { title: '課程進度', icon: 'list-checks' } : treeArea === 'foodmap' ? { title: '美食地圖', icon: 'utensils' } : AREA_INFO[treeArea];
       const head = document.createElement('div');
       head.className = 'tree-section tree-area-head';
       head.innerHTML = Icons.svg(info.icon) + '<span>' + MD.escapeHtml(info.title) + '</span>';
@@ -262,6 +265,7 @@
         : treeArea === 'xmind' ? '還沒有心智圖。'
         : treeArea === 'timetree' ? '還沒有行事曆。'
         : treeArea === 'progress' ? '還沒有課程。'
+        : treeArea === 'foodmap' ? '還沒有地圖。'
         : treeArea ? '這個區域還沒有資料夾或筆記。'
         : '尚無筆記，點上方「＋ 筆記」開始。';
       treeEl.appendChild(hint);
@@ -696,6 +700,7 @@
     if (xmindWrapEl && !xmindWrapEl.hidden && window.XMind) XMind.renderIndex(xmindPageEl, xmindOpts());
     renderTimeTree();
     renderProgress();
+    renderFoodMap();
     renderStart();
   }
   // 儀表板需要的資料與回呼，集中一處，render / refresh 共用
@@ -1062,6 +1067,8 @@
     setNavActive('timetree-open-btn', false);
     if (progressWrapEl) { progressWrapEl.hidden = true; if (window.Progress) Progress.teardown(); }
     setNavActive('progress-open-btn', false);
+    if (foodmapWrapEl) { foodmapWrapEl.hidden = true; if (window.FoodMap) FoodMap.teardown(); }
+    setNavActive('foodmap-open-btn', false);
   }
 
   // 進入一個區域頁面前的共用收尾：跟 openTrash／openBook 同一套「收起其他檢視」。
@@ -1577,6 +1584,62 @@
     try { sessionStorage.setItem('pgNoticed', '1'); } catch (e) { /* */ }
     toast('課程進度：' + names.join('、') + ' 有 ' + n + ' 個章節逾期，到課程進度重新規劃');
   }
+  // ---- 美食地圖（js/foodmap.js）：#foodmap 一個畫面；每一張地圖是一篇 area 'foodmap'、meta.foodmap 的筆記 ----
+  // 底圖是 OpenStreetMap（vendor/leaflet），地址定位走伺服器的 /api/geocode。存檔走 ttSave（每篇一條單一寫入路徑）。
+  const foodmapWrapEl = $('#foodmap-wrap'), foodmapPageEl = $('#foodmap-page');
+  let fmCreating = false;
+  function fmOpts() {
+    return {
+      maps: state.notes.filter(function (n) { return n.area === 'foodmap' && window.FoodMap && FoodMap.isNote(n); }),
+      readOnly: function (n) { return n.perm === 'read'; },
+      onCreate: function (d) {
+        if (fmCreating) return;   // 第一次開頁自動建一張：render 可能連著被叫兩次，不要建兩張
+        fmCreating = true;
+        Store.createNote(d.title, null, { area: 'foodmap', content: FoodMap.generate(d.color), meta: { foodmap: true } }).then(function (n) {
+          state.notes.push(n);
+          renderFoodMap(); renderTree();
+          if (!d.auto) toast('已建立地圖「' + n.title + '」');
+        }, function (e) { toast('建立失敗：' + (e && e.message || e)); }).then(function () { fmCreating = false; });
+      },
+      onRename: function (n) {
+        showPrompt({ title: '重新命名地圖', placeholder: '名稱', value: n.title, ok: '確定' }).then(function (t) {
+          t = String(t || '').trim();
+          if (!t || t === n.title) return;
+          Store.updateNote(Object.assign({}, n, { title: t })).then(function (r) {
+            Object.assign(n, { title: r.title, rev: r.rev, updatedAt: r.updatedAt });
+            refreshViews();
+          }, function (e) { toast('儲存失敗：' + (e && e.message || e)); });
+        });
+      },
+      onChange: ttSave,
+      onTags: editTags,
+      onDelete: function (n) {
+        showConfirm({ title: '移到垃圾桶', message: '把地圖「' + n.title + '」和裡面的店家移到垃圾桶？可以從垃圾桶還原。', ok: '移到垃圾桶', danger: true }).then(function (yes) {
+          if (!yes) return;
+          Store.deleteNote(n.id).then(function () {
+            state.notes = state.notes.filter(function (x) { return x.id !== n.id; });
+            refreshViews();
+            toast('已移到垃圾桶');
+          }, function (e) { toast('刪除失敗：' + (e && e.message || e)); });
+        });
+      }
+    };
+  }
+  function renderFoodMap() {
+    if (foodmapWrapEl && !foodmapWrapEl.hidden && window.FoodMap) FoodMap.render(foodmapPageEl, fmOpts());
+  }
+  function openFoodMap(o) {
+    if (!foodmapWrapEl || !window.FoodMap) return;
+    leaveOtherViews();
+    closeAreaViews();
+    if (o && o.mapId) FoodMap.reveal(o.mapId);
+    foodmapWrapEl.hidden = false;
+    setNavActive('foodmap-open-btn', true);
+    setSidebarOpen(false);   // 跟 timetree 一樣：頁面自己有左欄
+    setHash('foodmap');
+    setTreeArea('foodmap');
+    renderFoodMap();
+  }
   // ---- 文件（js/doc.js）：所見即所得的編輯器，整頁；內容是 HTML。最上面那一列是它的標題列（toolBar，
   // 跟 drawio／看板同一套），單一寫入路徑同上。----
   const docWrapEl = $('#doc-wrap');
@@ -1882,7 +1945,7 @@
   // 進關聯圖的那份筆記清單。
   function graphNotes() {
     return state.notes.filter(function (n) {
-      return n.area !== 'quick' && n.area !== 'novel' && n.area !== 'board' && n.area !== 'start' && n.area !== 'xmind' && n.area !== 'timetree' && n.area !== 'progress' && !isFileNote(n) && !isStickyNote(n);
+      return n.area !== 'quick' && n.area !== 'novel' && n.area !== 'board' && n.area !== 'start' && n.area !== 'xmind' && n.area !== 'timetree' && n.area !== 'progress' && n.area !== 'foodmap' && !isFileNote(n) && !isStickyNote(n);
     });
   }
 
@@ -2760,6 +2823,8 @@
       if (window.TimeTree && TimeTree.isNote(note)) { openTimeTree({ calId: note.id }); return; }
       // 課程進度（meta.progress）：到課程進度的畫面、選到那一門
       if (window.Progress && Progress.isNote(note)) { openProgress({ courseId: note.id }); return; }
+      // 美食地圖（meta.foodmap）：到地圖的畫面、把那張顯示出來
+      if (window.FoodMap && FoodMap.isNote(note)) { openFoodMap({ mapId: note.id }); return; }
       // 不在 state.notes 裡的檔案筆記（理論上不會發生）：同樣只疊檢視器，背景沒東西就回首頁
       if (isFileNote(note)) { if (!state.currentId) showEmpty(); openFileViewer(note); return; }
       state.currentId = id;
@@ -6011,6 +6076,7 @@
       if (location.hash === '#xmind') { if (xmindWrapEl && xmindWrapEl.hidden) openXmind(); return; }
       if (location.hash === '#timetree') { if (timetreeWrapEl && timetreeWrapEl.hidden) openTimeTree(); return; }
       if (location.hash === '#progress') { if (progressWrapEl && progressWrapEl.hidden) openProgress(); return; }
+      if (location.hash === '#foodmap') { if (foodmapWrapEl && foodmapWrapEl.hidden) openFoodMap(); return; }
       const bid = bookIdFromHash();
       if (bid) {
         if (state.folders.some(function (f) { return f.id === bid; })) openBook(bid);
@@ -6077,6 +6143,7 @@
     const xmindBtn = $('#xmind-open-btn'); if (xmindBtn) xmindBtn.addEventListener('click', openXmind);
     const timetreeBtn = $('#timetree-open-btn'); if (timetreeBtn) timetreeBtn.addEventListener('click', function () { openTimeTree(); });
     const progressBtn = $('#progress-open-btn'); if (progressBtn) progressBtn.addEventListener('click', function () { openProgress(); });
+    const foodmapBtn = $('#foodmap-open-btn'); if (foodmapBtn) foodmapBtn.addEventListener('click', function () { openFoodMap(); });
 
     editorEl.addEventListener('input', function () {
       renderPreview();
@@ -6320,7 +6387,7 @@
     // 使用者（2026-10-11）：「所有連結按下滾輪都要可以開新分頁」——所以不只筆記列：側邊欄的區域列、
     // 麵包屑、標籤、trello／xmind 磚、start.me 分頁、timetree 的行事曆列、課程進度的課程與章節筆記、
     // 電子書目錄、檔案管理「使用於」的筆記、嵌入圖的「全螢幕／編輯」、標題列的資料夾前綴，都算。
-    const NAV_HASH = { 'course-open-btn': '#course', 'quick-open-btn': '#quick', 'knowledge-open-btn': '#knowledge', 'board-open-btn': '#board', 'start-open-btn': '#start', 'xmind-open-btn': '#xmind', 'timetree-open-btn': '#timetree', 'progress-open-btn': '#progress', 'novel-open-btn': '#novel', 'images-open-btn': '#files', 'trash-open-btn': '#trash' };
+    const NAV_HASH = { 'course-open-btn': '#course', 'quick-open-btn': '#quick', 'knowledge-open-btn': '#knowledge', 'board-open-btn': '#board', 'start-open-btn': '#start', 'xmind-open-btn': '#xmind', 'timetree-open-btn': '#timetree', 'progress-open-btn': '#progress', 'foodmap-open-btn': '#foodmap', 'novel-open-btn': '#novel', 'images-open-btn': '#files', 'trash-open-btn': '#trash' };
     function middleTarget(t) {
       if (!t || !t.closest) return null;
       const fh = function (f) { return f ? (f.area ? '#' + f.area + '/' + f.id : '#folder/' + f.id) : null; };

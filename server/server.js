@@ -48,7 +48,8 @@ const MIME = {
 // paged.js config from the parent frame instead of an inline <script>.
 const CSP = [
   "default-src 'self'",
-  "img-src 'self' data: blob:",
+  // tile.openstreetmap.org：美食地圖（js/foodmap.js）的底圖，Leaflet 用 <img> 一格一格載；除此之外不載任何站外圖片
+  "img-src 'self' data: blob: https://tile.openstreetmap.org",
   "style-src 'self' 'unsafe-inline'",
   "script-src 'self'",
   "connect-src 'self'",
@@ -710,6 +711,14 @@ async function handleApi(req, res, url) {
     if (!config.linkPreview) return json(res, 200, { error: '連結預覽已停用' });
     const info = await linkpreview.person(url.searchParams.get('name'));
     return json(res, 200, info, { 'Cache-Control': 'no-store' });
+  }
+  // 美食地圖（js/foodmap.js）：地址 → 座標（?q=）或座標 → 地址（?lat=&lng=），固定問 OpenStreetMap 的 Nominatim，
+  // 每秒最多一次（它的使用規範）、答案快取一天。錯誤也是 200 { error }：找不到地址是查詢的正常結果。
+  if (p === '/api/geocode' && method === 'GET') {
+    if (!config.linkPreview) return json(res, 200, { error: '連結預覽已停用（LINK_PREVIEW=0 時伺服器不對外連線）' });
+    const lat = url.searchParams.get('lat'), lng = url.searchParams.get('lng');
+    const info = lat !== null && lng !== null ? await linkpreview.reverseGeocode(lat, lng) : await linkpreview.geocode(url.searchParams.get('q'));
+    return json(res, 200, info, info.error ? {} : { 'Cache-Control': 'private, max-age=86400' });
   }
   if (p === '/api/link-preview/image' && method === 'GET') {
     if (!config.linkPreview) return json(res, 404, { error: 'not found' });

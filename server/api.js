@@ -35,7 +35,7 @@ function uid(prefix) {
 // match every note and sub-folder placed inside it (checked in folderAreaOf
 // below, not a DB constraint: MariaDB has no portable "check against a joined
 // row").
-const AREAS = ['course', 'knowledge', 'quick', 'novel', 'board', 'start', 'xmind', 'timetree', 'progress'];   // board：看板（js/board.js）、start：起始頁（js/startpage.js）、xmind：心智圖（js/xmind.js）、timetree：行事曆（js/timetree.js）——都沒有資料夾、不能搬到別區
+const AREAS = ['course', 'knowledge', 'quick', 'novel', 'board', 'start', 'xmind', 'timetree', 'progress', 'foodmap'];   // board：看板（js/board.js）、start：起始頁（js/startpage.js）、xmind：心智圖（js/xmind.js）、timetree：行事曆（js/timetree.js）——都沒有資料夾、不能搬到別區
 function normalizeArea(a) { return AREAS.indexOf(a) >= 0 ? a : null; }
 // 所有筆記／課程筆記／知識區 之間可以互相搬——novel 有解鎖的安全考量、quick
 // 沒有資料夾概念，兩個都刻意不讓這個功能碰，維持它們原本各自的規則。
@@ -812,7 +812,7 @@ function kindOfMeta(raw) {
   let m = null;
   try { m = raw ? JSON.parse(raw) : null; } catch (e) { m = null; }
   if (!m) return '';
-  return m.relMap ? 'relmap' : m.drawio ? 'drawio' : m.board ? 'board' : m.startpage ? 'start' : m.xmind ? 'xmind' : m.timetree ? 'timetree' : m.progress ? 'progress' : m.doc ? 'doc' : m.video ? 'video' : m.secReport ? 'sec' : m.perfReport ? 'perf' : m.file ? 'file' : m.sticky ? 'sticky' : '';
+  return m.relMap ? 'relmap' : m.drawio ? 'drawio' : m.board ? 'board' : m.startpage ? 'start' : m.xmind ? 'xmind' : m.timetree ? 'timetree' : m.progress ? 'progress' : m.foodmap ? 'foodmap' : m.doc ? 'doc' : m.video ? 'video' : m.secReport ? 'sec' : m.perfReport ? 'perf' : m.file ? 'file' : m.sticky ? 'sticky' : '';
 }
 async function listTrash(user) {
   const rows = await q.trashOf.all(user.id);

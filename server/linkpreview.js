@@ -724,4 +724,89 @@ function forget(raw) {
   if (t) cache.delete(t.toString());
 }
 
-module.exports = { preview, image, person, forget, parseTarget, isBlockedAddress, extract };
+// ---------------- 地理編碼（美食地圖，js/foodmap.js） ----------------
+// 固定問 OpenStreetMap 的 Nominatim（免費、不用金鑰），不是使用者給的網址——但同一條 fetchLimited／safeLookup
+// 路，同一個期限。它的使用規範：每秒最多一次請求、UA 要說明是誰；所以這裡排隊（前一個問完至少隔 1.1 秒才問下一個），
+// 答案快取一天（同一個地址不會再問第二次）。錯誤是答案不是例外：找不到地址就是 { error }。
+const GEO_HOST = 'https://nominatim.openstreetmap.org';
+const GEO_UA = 'CapyNote-FoodMap/1.0 (self-hosted note app; +https://github.com/capytuntun)';
+const GEO_GAP_MS = 1100;
+let geoChain = Promise.resolve(), geoLast = 0;
+function geoFetch(path) {
+  const run = async function () {
+    const wait = geoLast + GEO_GAP_MS - Date.now();
+    if (wait > 0) await new Promise(function (r) { setTimeout(r, wait); });
+    geoLast = Date.now();
+    const target = parseTarget(GEO_HOST + path);
+    if (!target) throw fail('地理編碼的網址不正確');
+    const r = await fetchLimited(target, { accept: 'application/json', maxBytes: 512 * 1024, truncate: false, ua: GEO_UA }, AbortSignal.timeout(DEADLINE_MS), 0);
+    return JSON.parse(r.body.toString('utf8'));
+  };
+  const p = geoChain.then(run, run);
+  geoChain = p.catch(function () { /* 下一個照排 */ });
+  return p;
+}
+function num(v, lo, hi) { const n = parseFloat(v); return isFinite(n) && n >= lo && n <= hi ? n : null; }
+function shapeHit(h) {
+  const lat = num(h.lat, -90, 90), lng = num(h.lon, -180, 180);
+  if (lat === null || lng === null) return null;
+  const a = h.address || {};
+  return {
+    name: clip(String(h.name || (h.namedetails && h.namedetails.name) || '').trim(), 200),
+    displayName: clip(String(h.display_name || '').trim(), 400),
+    type: clip(String(h.type || ''), 60),
+    lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6,
+    // 比 display_name 短的一行地址：縣市＋區＋路＋門牌（Nominatim 的 address 分欄）
+    short: clip([a.city || a.county || a.state || '', a.suburb || a.city_district || a.district || a.town || '', a.road || '', a.house_number || ''].filter(Boolean).join(''), 200)
+  };
+}
+// { results: [{ name, displayName, short, type, lat, lng }] } 或 { error }
+async function geocode(raw) {
+  const q = String(raw || '').trim().slice(0, 300);
+  if (!q) return { error: '請輸入地址或店名' };
+  const key = 'geo:' + q.toLowerCase();
+  const hit = cached(key);
+  if (hit) return hit;
+  let value;
+  try {
+    // Nominatim 看不懂台灣式的門牌（「峨眉街8-1號」整串找不到，「峨眉街 8-1」或「峨眉街」就找得到），日本的
+    // 「2-29-1」也一樣，所以一階一階退：原樣 → 門牌拆開、去掉「號」後面的樓層 → 整個門牌拿掉（只到路段，標 approx，
+    // 讓畫面提醒使用者在地圖上微調）。每一階都算一次請求（1.1 秒），最多四階。
+    const variants = [q];
+    const noFloor = q.replace(/(\d+(?:[-－之]\d+)*)\s*[號号].*$/, ' $1').trim();
+    if (variants.indexOf(noFloor) < 0) variants.push(noFloor);
+    const street = q.replace(/\s*\d+(?:[-－之]\d+)*\s*[號号]?.*$/, '').trim();
+    if (street && street !== q && variants.indexOf(street) < 0) variants.push(street);
+    let results = [], approx = false;
+    for (let i = 0; i < variants.length && !results.length; i++) {
+      const arr = await geoFetch('/search?format=jsonv2&addressdetails=1&namedetails=1&limit=6&accept-language=zh-TW,zh,en&q=' + encodeURIComponent(variants[i]));
+      results = (Array.isArray(arr) ? arr : []).map(shapeHit).filter(Boolean);
+      approx = variants[i] === street && street !== noFloor;
+    }
+    value = results.length ? { results: results, approx: approx } : { error: '找不到這個地址，試試加上縣市或換個寫法，或直接在地圖上點位置' };
+  } catch (e) {
+    value = { error: '查地址失敗：' + failReason(e) };
+  }
+  remember(key, value, value.error ? 10 * 60 * 1000 : 24 * 3600 * 1000);
+  return value;
+}
+// { address, displayName, lat, lng } 或 { error }
+async function reverseGeocode(rawLat, rawLng) {
+  const lat = num(rawLat, -90, 90), lng = num(rawLng, -180, 180);
+  if (lat === null || lng === null) return { error: '座標不正確' };
+  const key = 'rgeo:' + lat.toFixed(5) + ',' + lng.toFixed(5);
+  const hit = cached(key);
+  if (hit) return hit;
+  let value;
+  try {
+    const h = await geoFetch('/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=zh-TW,zh,en&lat=' + lat + '&lon=' + lng);
+    const s = h && !h.error ? shapeHit(h) : null;
+    value = s ? { address: s.short || s.displayName, displayName: s.displayName, name: s.name, lat: s.lat, lng: s.lng } : { error: '這個位置查不到地址' };
+  } catch (e) {
+    value = { error: '查地址失敗：' + failReason(e) };
+  }
+  remember(key, value, value.error ? 10 * 60 * 1000 : 24 * 3600 * 1000);
+  return value;
+}
+
+module.exports = { preview, image, person, forget, parseTarget, isBlockedAddress, extract, geocode, reverseGeocode };

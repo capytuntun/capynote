@@ -11,8 +11,9 @@
   <!-- 內建字體（Inter + Noto Sans TC，皆為可變字體，依 unicode-range 分檔載入）。
        獨立一支樣式表，因為它幾乎不會變，可以被瀏覽器快取；app.css 則是 no-store。 -->
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="vendor/hljs-github.min.css" id="hljs-theme-light">
-  <link rel="stylesheet" href="app.css?v=234">
+  <link rel="stylesheet" href="app.css?v=235">
 </head>
 <body>
   <!-- Login gate: shown until /api/me returns a user -->
@@ -170,6 +171,7 @@
         <button id="xmind-open-btn" class="sidebar-nav-item" type="button" title="像 XMind 一樣的心智圖" data-icon="mind-map">xmind</button>
         <button id="timetree-open-btn" class="sidebar-nav-item" type="button" title="像 TimeTree 一樣的行事曆" data-icon="calendar">timetree</button>
         <button id="progress-open-btn" class="sidebar-nav-item" type="button" title="課程進度：輸入課程與章節，完成一章勾一章，進度與預計完成日會同步到課程筆記與 timetree" data-icon="list-checks">課程進度</button>
+        <button id="foodmap-open-btn" class="sidebar-nav-item" type="button" title="美食地圖：店名、地址、資料來源、標籤，一起顯示在 OpenStreetMap 上" data-icon="utensils">美食地圖</button>
         <!-- 個人區：小說＋影片（js/videos.js），需要再輸入一次密碼；id 沿用 novel，伺服器的 area 也還是 'novel' -->
         <button id="novel-open-btn" class="sidebar-nav-item" type="button" title="個人區（小說、影片），需要再輸入一次密碼才能進入" data-icon="lock">個人</button>
       </nav>
@@ -377,6 +379,10 @@
       <div id="progress-wrap" class="trash-wrap area-wrap" hidden>
         <div id="progress-page"></div>
       </div>
+      <!-- 美食地圖（js/foodmap.js）：#foodmap 一個畫面；每一張地圖是一篇 meta.foodmap 的筆記，底圖是 OpenStreetMap（vendor/leaflet） -->
+      <div id="foodmap-wrap" class="trash-wrap area-wrap" hidden>
+        <div id="foodmap-page"></div>
+      </div>
       <!-- 關聯分析（js/relmap.js）：整頁的畫布編輯器，不是浮在上面的視窗。一篇 meta.relMap
            的筆記直接開在這裡；一般筆記裡的 ```relmap 區塊按「全螢幕」也是開到這裡，完成後回筆記。 -->
       <div id="relmap-wrap" class="relmap-wrap" hidden></div>
@@ -399,22 +405,23 @@
   <!-- 補上 PowerShell 與 CMD(dos) 語言模組（bash/shell 已內建於上方 bundle）-->
   <script src="vendor/hljs-powershell.min.js"></script>
   <script src="vendor/hljs-dos.min.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
 
   <!-- App -->
-  <script src="js/icons.js?v=20"></script>
+  <script src="js/icons.js?v=21"></script>
   <script src="js/merge.js?v=4"></script>
   <script src="js/mdimport.js?v=1"></script>
   <script src="js/mindmap.js?v=3"></script>
   <script src="js/relmap.js?v=8"></script>
   <script src="js/drawio.js?v=8"></script>
   <script src="js/graph.js?v=14"></script>
-  <script src="js/store.js?v=69"></script>
+  <script src="js/store.js?v=70"></script>
   <script src="js/auth.js?v=50"></script>
   <script src="js/migrate.js?v=41"></script>
   <script src="js/admin.js?v=51"></script>
   <script src="js/backup.js?v=2"></script>
   <script src="js/search.js?v=41"></script>
-  <script src="js/markdown.js?v=75"></script>
+  <script src="js/markdown.js?v=76"></script>
   <script src="js/editor.js?v=55"></script>
   <script src="js/multicursor.js?v=3"></script>
   <script src="js/templates.js?v=1"></script>
@@ -425,25 +432,26 @@
   <script src="js/seceditor.js?v=43"></script>
   <script src="js/perfreport.js?v=43"></script>
   <script src="js/sorting.js?v=1"></script>
-  <script src="js/dashboard.js?v=84"></script>
+  <script src="js/dashboard.js?v=85"></script>
   <script src="js/videos.js?v=22"></script>
-  <script src="js/areabrowser.js?v=30"></script>
+  <script src="js/areabrowser.js?v=31"></script>
   <script src="js/quicknotes.js?v=15"></script>
   <script src="js/board.js?v=4"></script>
   <script src="js/startpage.js?v=3"></script>
   <script src="js/xmind.js?v=1"></script>
   <script src="js/timetree.js?v=1"></script>
   <script src="js/progress.js?v=4"></script>
+  <script src="js/foodmap.js?v=1"></script>
   <script src="js/doc.js?v=6"></script>
   <script src="js/annotate.js?v=42"></script>
   <script src="js/cover.js?v=1"></script>
-  <script src="js/pdf.js?v=66"></script>
+  <script src="js/pdf.js?v=67"></script>
   <script src="js/book.js?v=13"></script>
   <script src="js/versions.js?v=7"></script>
-  <script src="js/trash.js?v=10"></script>
+  <script src="js/trash.js?v=11"></script>
   <script src="js/imagelib.js?v=8"></script>
   <script src="js/linesync.js?v=9"></script>
   <script src="js/embedswitch.js?v=2"></script>
-  <script src="js/app.js?v=159"></script>
+  <script src="js/app.js?v=160"></script>
 </body>
 </html>

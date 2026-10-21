@@ -342,6 +342,10 @@
     // 硬刪一部影片後把它的預覽答案從這一頁的快取拿掉（伺服器那邊 api.deleteNote 也會忘掉）
     forgetLinkPreview: function (url) { delete linkPreviewCache[url]; },
     // 用名字找人（影片庫）：{ name, image, aliases } 或 { error }；伺服器與這裡都不留快取
+    // 美食地圖（js/foodmap.js）：地址 → 座標（伺服器固定問 OSM 的 Nominatim）；{ results: [...], approx } 或 { error }，不丟例外
+    geocode: function (q) { return req('GET', '/api/geocode?q=' + encodeURIComponent(q)).catch(function (e) { return { error: e && e.message || 'error' }; }); },
+    // 座標 → 地址：{ address, displayName, name, lat, lng } 或 { error }
+    reverseGeocode: function (lat, lng) { return req('GET', '/api/geocode?lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng)).catch(function (e) { return { error: e && e.message || 'error' }; }); },
     lookupPerson: function (name) { return req('GET', '/api/link-preview/person?name=' + encodeURIComponent(name)); },
     // 影片庫：把外部圖片存進系統（hidden 的上傳，檔案管理不列），回 { id }
     storeLinkImage: function (url) { return req('POST', '/api/link-preview/store', { url: url }); },

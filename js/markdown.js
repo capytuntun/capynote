@@ -663,6 +663,8 @@
       if (info === 'timetree' && global.TimeTree) return TimeTree.blockHTML(code);
       // ```progress 是課程進度（js/progress.js）：圍欄裡是 JSON，畫成進度條加章節清單
       if (info === 'progress' && global.Progress) return Progress.blockHTML(code);
+      // ```foodmap 是美食地圖（js/foodmap.js）：圍欄裡是 JSON，畫成靜態的店家清單（預覽、PDF、電子書沒有圖磚可載）
+      if (info === 'foodmap' && global.FoodMap) return FoodMap.blockHTML(code);
       // ```video 是個人區的一部影片（js/videos.js）：圍欄裡是它的欄位 JSON，畫成一張靜態卡片
       if (info === 'video' && global.Videos) return Videos.blockHTML(code);
       let requested = info, lineNumbers = false, startLine = 1;
