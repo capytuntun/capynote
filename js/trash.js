@@ -33,7 +33,7 @@
     xmind: { icon: 'mind-map', cls: 'kind-xmind' },
     timetree: { icon: 'calendar', cls: 'kind-timetree' },
     progress: { icon: 'list-checks', cls: 'kind-progress' },
-    foodmap: { icon: 'utensils', cls: 'kind-foodmap' },
+    foodmap: { icon: 'map-pin', cls: 'kind-foodmap' },
     doc: { icon: 'file-pen', cls: 'kind-doc' },
     video: { icon: 'film', cls: 'kind-video' },
     sec: { icon: 'shield', cls: 'kind-sec' },

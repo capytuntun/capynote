@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="vendor/hljs-github.min.css" id="hljs-theme-light">
-  <link rel="stylesheet" href="app.css?v=236">
+  <link rel="stylesheet" href="app.css?v=237">
 </head>
 <body>
   <!-- Login gate: shown until /api/me returns a user -->
@@ -171,7 +171,7 @@
         <button id="xmind-open-btn" class="sidebar-nav-item" type="button" title="像 XMind 一樣的心智圖" data-icon="mind-map">xmind</button>
         <button id="timetree-open-btn" class="sidebar-nav-item" type="button" title="像 TimeTree 一樣的行事曆" data-icon="calendar">timetree</button>
         <button id="progress-open-btn" class="sidebar-nav-item" type="button" title="課程進度：輸入課程與章節，完成一章勾一章，進度與預計完成日會同步到課程筆記與 timetree" data-icon="list-checks">課程進度</button>
-        <button id="foodmap-open-btn" class="sidebar-nav-item" type="button" title="美食地圖：店名、地址、資料來源、標籤，一起顯示在 OpenStreetMap 上" data-icon="utensils">美食地圖</button>
+        <button id="foodmap-open-btn" class="sidebar-nav-item" type="button" title="圖資中心：自己建圖層（預設美食地圖、步道地圖），把名稱、地址、資料來源、標籤放上 OpenStreetMap" data-icon="map-pin">圖資中心</button>
         <!-- 個人區：小說＋影片（js/videos.js），需要再輸入一次密碼；id 沿用 novel，伺服器的 area 也還是 'novel' -->
         <button id="novel-open-btn" class="sidebar-nav-item" type="button" title="個人區（小說、影片），需要再輸入一次密碼才能進入" data-icon="lock">個人</button>
       </nav>
@@ -379,7 +379,7 @@
       <div id="progress-wrap" class="trash-wrap area-wrap" hidden>
         <div id="progress-page"></div>
       </div>
-      <!-- 美食地圖（js/foodmap.js）：#foodmap 一個畫面；每一張地圖是一篇 meta.foodmap 的筆記，底圖是 OpenStreetMap（vendor/leaflet） -->
+      <!-- 圖資中心（js/foodmap.js，原美食地圖）：#foodmap 一個畫面；每一個圖層是一篇 meta.foodmap 的筆記，底圖是 OpenStreetMap（vendor/leaflet） -->
       <div id="foodmap-wrap" class="trash-wrap area-wrap" hidden>
         <div id="foodmap-page"></div>
       </div>
@@ -408,7 +408,7 @@
   <script src="vendor/leaflet/leaflet.js"></script>
 
   <!-- App -->
-  <script src="js/icons.js?v=21"></script>
+  <script src="js/icons.js?v=22"></script>
   <script src="js/merge.js?v=4"></script>
   <script src="js/mdimport.js?v=1"></script>
   <script src="js/mindmap.js?v=3"></script>
@@ -432,26 +432,26 @@
   <script src="js/seceditor.js?v=43"></script>
   <script src="js/perfreport.js?v=43"></script>
   <script src="js/sorting.js?v=1"></script>
-  <script src="js/dashboard.js?v=85"></script>
+  <script src="js/dashboard.js?v=86"></script>
   <script src="js/videos.js?v=22"></script>
-  <script src="js/areabrowser.js?v=31"></script>
+  <script src="js/areabrowser.js?v=32"></script>
   <script src="js/quicknotes.js?v=15"></script>
   <script src="js/board.js?v=4"></script>
   <script src="js/startpage.js?v=3"></script>
   <script src="js/xmind.js?v=1"></script>
   <script src="js/timetree.js?v=1"></script>
   <script src="js/progress.js?v=4"></script>
-  <script src="js/foodmap.js?v=2"></script>
+  <script src="js/foodmap.js?v=3"></script>
   <script src="js/doc.js?v=6"></script>
   <script src="js/annotate.js?v=42"></script>
   <script src="js/cover.js?v=1"></script>
-  <script src="js/pdf.js?v=67"></script>
+  <script src="js/pdf.js?v=68"></script>
   <script src="js/book.js?v=13"></script>
   <script src="js/versions.js?v=7"></script>
-  <script src="js/trash.js?v=11"></script>
+  <script src="js/trash.js?v=12"></script>
   <script src="js/imagelib.js?v=8"></script>
   <script src="js/linesync.js?v=9"></script>
   <script src="js/embedswitch.js?v=2"></script>
-  <script src="js/app.js?v=160"></script>
+  <script src="js/app.js?v=161"></script>
 </body>
 </html>

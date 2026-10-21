@@ -76,7 +76,7 @@
     if (note.meta && note.meta.xmind) return 'mind-map';
     if (note.meta && note.meta.timetree) return 'calendar';
     if (note.meta && note.meta.progress) return 'list-checks';
-    if (note.meta && note.meta.foodmap) return 'utensils';
+    if (note.meta && note.meta.foodmap) return 'map-pin';
     if (note.meta && note.meta.doc) return 'file-pen';
     if (note.meta && note.meta.video) return 'film';
     if (note.area === 'quick') return 'pin';
@@ -249,7 +249,7 @@
     treeEl.innerHTML = '';
     // 在某個區域裡：樹的最上面標出這是哪個區域的內容，免得跟「所有筆記」的樹搞混
     if (treeArea) {
-      const info = treeArea === 'quick' ? { title: '隨筆', icon: 'pin' } : treeArea === 'board' ? { title: 'trello', icon: 'kanban' } : treeArea === 'start' ? { title: 'start.me', icon: 'layout-grid' } : treeArea === 'xmind' ? { title: 'xmind', icon: 'mind-map' } : treeArea === 'timetree' ? { title: 'timetree', icon: 'calendar' } : treeArea === 'progress' ? { title: '課程進度', icon: 'list-checks' } : treeArea === 'foodmap' ? { title: '美食地圖', icon: 'utensils' } : AREA_INFO[treeArea];
+      const info = treeArea === 'quick' ? { title: '隨筆', icon: 'pin' } : treeArea === 'board' ? { title: 'trello', icon: 'kanban' } : treeArea === 'start' ? { title: 'start.me', icon: 'layout-grid' } : treeArea === 'xmind' ? { title: 'xmind', icon: 'mind-map' } : treeArea === 'timetree' ? { title: 'timetree', icon: 'calendar' } : treeArea === 'progress' ? { title: '課程進度', icon: 'list-checks' } : treeArea === 'foodmap' ? { title: '圖資中心', icon: 'map-pin' } : AREA_INFO[treeArea];
       const head = document.createElement('div');
       head.className = 'tree-section tree-area-head';
       head.innerHTML = Icons.svg(info.icon) + '<span>' + MD.escapeHtml(info.title) + '</span>';
@@ -265,7 +265,7 @@
         : treeArea === 'xmind' ? '還沒有心智圖。'
         : treeArea === 'timetree' ? '還沒有行事曆。'
         : treeArea === 'progress' ? '還沒有課程。'
-        : treeArea === 'foodmap' ? '還沒有地圖。'
+        : treeArea === 'foodmap' ? '還沒有圖層。'
         : treeArea ? '這個區域還沒有資料夾或筆記。'
         : '尚無筆記，點上方「＋ 筆記」開始。';
       treeEl.appendChild(hint);
@@ -1584,37 +1584,38 @@
     try { sessionStorage.setItem('pgNoticed', '1'); } catch (e) { /* */ }
     toast('課程進度：' + names.join('、') + ' 有 ' + n + ' 個章節逾期，到課程進度重新規劃');
   }
-  // ---- 美食地圖（js/foodmap.js）：#foodmap 一個畫面；每一張地圖是一篇 area 'foodmap'、meta.foodmap 的筆記 ----
+  // ---- 圖資中心（js/foodmap.js，原本的美食地圖）：#foodmap 一個畫面；每一個圖層是一篇 area 'foodmap'、meta.foodmap 的筆記 ----
   // 底圖是 OpenStreetMap（vendor/leaflet），地址定位走伺服器的 /api/geocode。存檔走 ttSave（每篇一條單一寫入路徑）。
   const foodmapWrapEl = $('#foodmap-wrap'), foodmapPageEl = $('#foodmap-page');
-  let fmCreating = false;
   function fmOpts() {
     return {
       maps: state.notes.filter(function (n) { return n.area === 'foodmap' && window.FoodMap && FoodMap.isNote(n); }),
       readOnly: function (n) { return n.perm === 'read'; },
+      // d：{ title, kind, icon, color, desc, auto }；回 promise，頁面第一次開時用它一層一層建預設圖層
       onCreate: function (d) {
-        if (fmCreating) return;   // 第一次開頁自動建一張：render 可能連著被叫兩次，不要建兩張
-        fmCreating = true;
-        Store.createNote(d.title, null, { area: 'foodmap', content: FoodMap.generate(d.color), meta: { foodmap: true } }).then(function (n) {
+        return Store.createNote(d.title, null, { area: 'foodmap', content: FoodMap.generate(d), meta: { foodmap: true } }).then(function (n) {
           state.notes.push(n);
           renderFoodMap(); renderTree();
-          if (!d.auto) toast('已建立地圖「' + n.title + '」');
-        }, function (e) { toast('建立失敗：' + (e && e.message || e)); }).then(function () { fmCreating = false; });
+          if (!d.auto) toast('已新增圖層「' + n.title + '」');
+          return n;
+        }, function (e) { toast('建立失敗：' + (e && e.message || e)); throw e; });
       },
-      onRename: function (n) {
-        showPrompt({ title: '重新命名地圖', placeholder: '名稱', value: n.title, ok: '確定' }).then(function (t) {
-          t = String(t || '').trim();
-          if (!t || t === n.title) return;
-          Store.updateNote(Object.assign({}, n, { title: t })).then(function (r) {
-            Object.assign(n, { title: r.title, rev: r.rev, updatedAt: r.updatedAt });
-            refreshViews();
-          }, function (e) { toast('儲存失敗：' + (e && e.message || e)); });
-        });
+      // 圖層對話框改了名稱：標題先寫進 state 裡的那篇，再走 ttSave 的單一寫入路徑——同一個對話框可能同時改了名稱
+      // 跟顏色（onChange），兩條各自 PUT 的話後到的那個會把另一個的值蓋回去（名稱又變回舊的，測試抓到過）。
+      onRename: function (n, t) {
+        t = String(t || '').trim();
+        if (!t || t === n.title) return Promise.resolve();
+        const live = state.notes.find(function (x) { return x.id === n.id; }) || n;
+        live.title = t;
+        if (live !== n) n.title = t;
+        ttSave(live, live.content);
+        refreshViews();
+        return Promise.resolve();
       },
       onChange: ttSave,
       onTags: editTags,
       onDelete: function (n) {
-        showConfirm({ title: '移到垃圾桶', message: '把地圖「' + n.title + '」和裡面的店家移到垃圾桶？可以從垃圾桶還原。', ok: '移到垃圾桶', danger: true }).then(function (yes) {
+        showConfirm({ title: '移到垃圾桶', message: '把圖層「' + n.title + '」和裡面的地點移到垃圾桶？可以從垃圾桶還原。', ok: '移到垃圾桶', danger: true }).then(function (yes) {
           if (!yes) return;
           Store.deleteNote(n.id).then(function () {
             state.notes = state.notes.filter(function (x) { return x.id !== n.id; });

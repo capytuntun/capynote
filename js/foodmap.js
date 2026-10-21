@@ -1,5 +1,11 @@
-/* foodmap.js — 美食地圖（使用者的話：「新增一個美食地圖，串接 openstreetmap 或是 GoogleMap，我要免費的，讓我可以把店名、地址、
- * 資料來源塞進去，並使用 tag 做分類，可以搜尋，同時顯示在地圖上」）。
+/* foodmap.js — 圖資中心（先是美食地圖：「新增一個美食地圖，串接 openstreetmap 或是 GoogleMap，我要免費的，讓我可以把店名、地址、
+ * 資料來源塞進去，並使用 tag 做分類，可以搜尋，同時顯示在地圖上」；接著「把美食地圖改成圖資中心，我可以在圖資中心自己新增圖層、
+ * 並編輯圖層，幫我預設有美食地圖、步道地圖」）。檔名、模組名 FoodMap、area 'foodmap'、meta.foodmap、#foodmap 都沿用，
+ * 跟 strikenote 的識別字一樣——已經存在的資料不用搬。
+ *
+ * 一個「圖層」就是一篇筆記（下面說的「地圖」就是圖層）：名稱是筆記標題，kind（food 美食／trail 步道／place 一般）決定用詞
+ * （店家／步道／地點）、icon 是針上和清單裡的圖示、color 是針的顏色、desc 是說明；第一次打開沒有任何圖層時自動建「美食地圖」
+ * 和「步道地圖」兩層。建立／編輯圖層都是 layerDialog（名稱、類型、圖示、顏色、說明）。
  *
  * 免費的做法：底圖是 OpenStreetMap 的標準圖磚（tile.openstreetmap.org，不用金鑰），畫在 Leaflet（vendor/leaflet/）上；
  * 地址 → 座標走伺服器的 GET /api/geocode（server/linkpreview.js geocode()，固定問 OSM 的 Nominatim，每秒一次、快取一天），
@@ -29,6 +35,16 @@
   function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return u; } }
 
   const COLORS = ['#e0542c', '#3b7ddd', '#17934f', '#d9962a', '#8e5bc7', '#26a69a', '#e46ba0', '#5b7fa6', '#c5221f', '#2ec4a6'];
+  // 圖層類型：決定用詞跟預設的圖示／顏色。只有用詞不同，欄位都一樣（名稱、地址、來源、標籤、評分、去過、備註）。
+  const KINDS = {
+    food: { label: '美食', one: '店家', name: '店名', icon: 'utensils', color: '#e0542c' },
+    trail: { label: '步道', one: '步道', name: '步道名稱', icon: 'mountain', color: '#17934f' },
+    place: { label: '一般', one: '地點', name: '名稱', icon: 'map-pin', color: '#3b7ddd' }
+  };
+  const KIND_ORDER = ['food', 'trail', 'place'];
+  const LAYER_ICONS = ['utensils', 'mountain', 'map-pin', 'coffee', 'camera', 'star', 'home', 'globe', 'award', 'book-open', 'film', 'shield', 'pin', 'image', 'users', 'archive'];
+  const DEFAULT_LAYERS = [{ title: '美食地圖', kind: 'food' }, { title: '步道地圖', kind: 'trail' }];
+  function kindOf(map) { return KINDS[map && map.kind] || KINDS.place; }
   // 標籤 chip 的顏色：名稱雜湊到這幾個，同一個標籤到哪裡都同一色
   const TAG_HUES = [14, 36, 92, 160, 200, 230, 270, 320];
   function tagHue(t) { let h = 0; const s = String(t).toLowerCase(); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return TAG_HUES[h % TAG_HUES.length]; }
@@ -60,12 +76,13 @@
       note: str(p.note, 2000), rating: Math.max(0, Math.min(5, parseInt(p.rating, 10) || 0)), visited: !!p.visited,
       added: p.added > 0 ? Math.floor(p.added) : Date.now()
     };
-    if (!o.name) o.name = '（未命名店家）';
+    if (!o.name) o.name = '（未命名）';
     return o;
   }
   function cleanMap(raw) {
     raw = raw && typeof raw === 'object' ? raw : {};
-    const o = { color: /^#[0-9a-f]{6}$/i.test(raw.color || '') ? raw.color : COLORS[0], places: [] };
+    const kind = KINDS[raw.kind] ? raw.kind : 'place';
+    const o = { kind: kind, icon: LAYER_ICONS.indexOf(raw.icon) >= 0 ? raw.icon : KINDS[kind].icon, color: /^#[0-9a-f]{6}$/i.test(raw.color || '') ? raw.color : KINDS[kind].color, desc: str(raw.desc, 500).trim(), places: [] };
     const seen = {};
     (Array.isArray(raw.places) ? raw.places : []).forEach(function (p) { const x = cleanPlace(p, seen); if (x) o.places.push(x); });
     return o;
@@ -75,7 +92,8 @@
   function payloadOf(content) { const m = /^```foodmap[ \t]*\r?\n([\s\S]*?)\r?\n?```[ \t]*$/m.exec(String(content || '')); return m ? m[1] : null; }
   function wrap(json) { return '```foodmap\n' + json + '\n```\n'; }
   function isNote(note) { return !!(note && note.meta && note.meta.foodmap); }
-  function generate(color) { return wrap(serialize(cleanMap({ color: color }))); }
+  // d：{ kind, icon, color, desc }（舊的呼叫法 generate('#hex') 也收）
+  function generate(d) { if (typeof d === 'string') d = { color: d }; return wrap(serialize(cleanMap(d || {}))); }
 
   function gmapsUrl(p) {
     if (p.lat !== null) return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat + ',' + p.lng);
@@ -94,12 +112,14 @@
   function blockHTML(payload, name) {
     const m = parse(payload);
     const located = m.places.filter(function (p) { return p.lat !== null; }).length;
-    return '<div class="fms"><div class="fms-head"><i style="background:' + m.color + '"></i><b>' + esc(name || '美食地圖') + '</b><span>' + m.places.length + ' 家店' + (located < m.places.length ? '・' + (m.places.length - located) + ' 家未定位' : '') + '</span></div>' +
+    const k = kindOf(m);
+    return '<div class="fms"><div class="fms-head"><i style="background:' + m.color + '"></i><b>' + esc(name || '圖層') + '</b><small>' + esc(k.label) + '</small><span>' + m.places.length + ' 個' + esc(k.one) + (located < m.places.length ? '・' + (m.places.length - located) + ' 個未定位' : '') + '</span></div>' +
+      (m.desc ? '<div class="fms-desc">' + esc(m.desc) + '</div>' : '') +
       (m.places.length ? '<ul class="fms-list">' + m.places.map(function (p) {
-        return '<li' + (p.visited ? ' class="is-visited"' : '') + '><div class="fms-row"><span class="fms-pin">' + ic('map-pin') + '</span><b class="fms-name">' + esc(p.name) + '</b>' + (p.rating ? '<span class="fms-stars">' + stars(p.rating) + '</span>' : '') + (p.visited ? '<span class="fms-visited">去過</span>' : '') + tagsHTML(p.tags, 'fms-tag') + '</div>' +
+        return '<li' + (p.visited ? ' class="is-visited"' : '') + '><div class="fms-row"><span class="fms-pin" style="color:' + m.color + '">' + ic(m.icon) + '</span><b class="fms-name">' + esc(p.name) + '</b>' + (p.rating ? '<span class="fms-stars">' + stars(p.rating) + '</span>' : '') + (p.visited ? '<span class="fms-visited">去過</span>' : '') + tagsHTML(p.tags, 'fms-tag') + '</div>' +
           (p.address ? '<div class="fms-addr">' + esc(p.address) + '</div>' : '') +
           (p.source || p.note ? '<div class="fms-meta">' + sourceHTML(p.source, 'fms-src') + (p.note ? '<span class="fms-note">' + esc(p.note) + '</span>' : '') + '</div>' : '') + '</li>';
-      }).join('') + '</ul>' : '<div class="fms-empty">還沒有店家</div>') + '</div>';
+      }).join('') + '</ul>' : '<div class="fms-empty">還沒有' + esc(k.one) + '</div>') + '</div>';
   }
 
   // ---------------- 頁面 ----------------
@@ -125,13 +145,13 @@
   const cache = new Map();   // noteId → { content, map }
   let host = null, O = null, built = null;
   // Leaflet 的東西，建一次、跨 render 留著（重畫清單時地圖不重載圖磚）
-  let leaf = null, markerLayer = null, markers = {}, fitted = false, pickBanner = null;
+  let leaf = null, markerLayer = null, markers = {}, fitted = false, pickBanner = null, seeding = false;
 
   function mapsOf() {
     return (O.maps || []).map(function (n) {
       let c = cache.get(n.id);
       if (!c || c.content !== n.content) { c = { content: n.content, map: parse(payloadOf(n.content) || '') }; cache.set(n.id, c); }
-      return { id: n.id, note: n, map: c.map, name: n.title || '美食地圖', ro: !!(O.readOnly && O.readOnly(n)) };
+      return { id: n.id, note: n, map: c.map, name: n.title || '圖層', kind: kindOf(c.map), ro: !!(O.readOnly && O.readOnly(n)) };
     });
   }
   function visibleMaps() { return mapsOf().filter(function (m) { return !S.hidden[m.id]; }); }
@@ -181,7 +201,12 @@
       container.appendChild(built);
       bind(built);
       leaf = null; markers = {}; fitted = false;
-      if (!(O.maps || []).length && O.onCreate) O.onCreate({ title: '美食地圖', color: COLORS[0], auto: true });   // 第一次：先給一張地圖
+    }
+    // 第一次：一個圖層都沒有就把預設的兩層建起來（美食地圖、步道地圖），一層一層建，render 連著被叫也只建一次
+    if (!(O.maps || []).length && O.onCreate && !seeding) {
+      seeding = true;
+      DEFAULT_LAYERS.reduce(function (p, d) { return p.then(function () { return O.onCreate(Object.assign({ auto: true }, d, KINDS[d.kind] ? { icon: KINDS[d.kind].icon, color: KINDS[d.kind].color } : {})); }); }, Promise.resolve())
+        .then(function () { seeding = false; }, function () { seeding = false; });
     }
     paint();
     ensureMap();
@@ -194,15 +219,15 @@
     const side = built.querySelector('.fm-side');
     const maps = mapsOf(), tags = tagCounts(), all = allPlaces();
     const visited = all.filter(function (x) { return x.p.visited; }).length;
-    let h = '<div class="tt-side-t">地圖 <small>' + maps.length + '</small></div><div class="fm-maps">';
+    let h = '<div class="tt-side-t">圖層 <small>' + maps.length + '</small></div><div class="fm-maps">';
     maps.forEach(function (m) {
-      h += '<div class="tt-cal fm-mapline' + (S.hidden[m.id] ? ' is-hidden' : '') + '" data-map="' + esc(m.id) + '"><label class="tt-cal-chk" title="顯示／隱藏"><input type="checkbox" data-vis="' + esc(m.id) + '"' + (S.hidden[m.id] ? '' : ' checked') + '><i style="background:' + m.map.color + '"></i></label><span class="tt-cal-name">' + esc(m.name) + '</span><small class="fm-mapn">' + m.map.places.length + '</small>' + (m.ro ? '<span class="tt-cal-ro" title="別人分享給我的，只能看">' + ic('lock') + '</span>' : '') + '<button class="tt-cal-more" type="button" data-more="' + esc(m.id) + '" title="更多">' + ic('more-horizontal') + '</button></div>';
+      h += '<div class="tt-cal fm-mapline' + (S.hidden[m.id] ? ' is-hidden' : '') + '" data-map="' + esc(m.id) + '" title="' + esc(m.kind.label + (m.map.desc ? '：' + m.map.desc : '')) + '"><label class="tt-cal-chk" title="顯示／隱藏"><input type="checkbox" data-vis="' + esc(m.id) + '"' + (S.hidden[m.id] ? '' : ' checked') + '><i style="background:' + m.map.color + '"></i></label><span class="fm-layer-ic" style="color:' + m.map.color + '">' + ic(m.map.icon) + '</span><span class="tt-cal-name">' + esc(m.name) + '</span><small class="fm-mapn">' + m.map.places.length + '</small>' + (m.ro ? '<span class="tt-cal-ro" title="別人分享給我的，只能看">' + ic('lock') + '</span>' : '') + '<button class="tt-cal-more" type="button" data-more="' + esc(m.id) + '" title="更多">' + ic('more-horizontal') + '</button></div>';
     });
-    if (!maps.length) h += '<div class="tt-side-empty">還沒有地圖。</div>';
-    h += '</div>' + (O.onCreate ? '<button class="tt-side-add" type="button" data-e="newmap">' + ic('plus') + ' 建立地圖</button>' : '');
+    if (!maps.length) h += '<div class="tt-side-empty">還沒有圖層。</div>';
+    h += '</div>' + (O.onCreate ? '<button class="tt-side-add" type="button" data-e="newmap">' + ic('plus') + ' 新增圖層</button>' : '');
     h += '<div class="tt-side-t">去過沒 </div><div class="fm-visit">' + [['all', '全部', all.length], ['todo', '還沒去', all.length - visited], ['visited', '去過', visited]].map(function (v) { return '<button type="button" class="fm-visit-b' + (S.visit === v[0] ? ' on' : '') + '" data-visit="' + v[0] + '">' + v[1] + '<small>' + v[2] + '</small></button>'; }).join('') + '</div>';
     h += '<div class="tt-side-t">標籤 <small>' + tags.length + '</small>' + (S.tags.length ? '<button type="button" class="fm-side-clear" data-e="cleartags">清除</button>' : '') + '</div><div class="fm-tagcloud">';
-    if (!tags.length) h += '<div class="tt-side-empty">新增店家時填標籤，這裡就會出現，點了可以篩選。</div>';
+    if (!tags.length) h += '<div class="tt-side-empty">新增地點時填標籤，這裡就會出現，點了可以篩選。</div>';
     tags.forEach(function (t) { const on = S.tags.some(function (x) { return x.toLowerCase() === t.name.toLowerCase(); }); h += '<button type="button" class="fm-tag fm-tag-b' + (on ? ' on' : '') + '" ' + tagStyle(t.name) + ' data-tag="' + esc(t.name) + '">' + esc(t.name) + '<small>' + t.n + '</small></button>'; });
     h += '</div>';
     h += '<div class="tt-side-foot fm-foot">底圖 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> 貢獻者</div>';
@@ -212,16 +237,20 @@
     const head = built.querySelector('.fm-head');
     const n = filtered().length, total = allPlaces().length;
     const canAdd = mapsOf().some(function (m) { return !m.ro; });
-    head.innerHTML = '<label class="tt-search fm-search">' + ic('search') + '<input type="search" placeholder="搜尋店名、地址、標籤、來源…" value="' + esc(S.search) + '" data-f="search" aria-label="搜尋店家"></label>' +
+    head.innerHTML = '<label class="tt-search fm-search">' + ic('search') + '<input type="search" placeholder="搜尋名稱、地址、標籤、來源…" value="' + esc(S.search) + '" data-f="search" aria-label="搜尋地點"></label>' +
       (S.tags.length ? '<div class="fm-active-tags">' + S.tags.map(function (t) { return '<span class="fm-tag" ' + tagStyle(t) + '>' + esc(t) + '<button type="button" data-untag="' + esc(t) + '" title="取消這個標籤的篩選">' + ic('x') + '</button></span>'; }).join('') + '</div>' : '') +
-      '<span class="fm-count">' + (n === total ? total + ' 家店' : n + ' / ' + total + ' 家店') + '</span><span class="tt-sp"></span>' +
+      '<span class="fm-count">' + countText() + '</span><span class="tt-sp"></span>' +
       '<button class="tt-tb" type="button" data-e="fit" title="把所有看得到的店都放進畫面">' + ic('maximize') + '<span class="fm-tb-t">全部顯示</span></button>' +
-      (canAdd ? '<button class="tt-btn tt-btn-primary fm-add" type="button" data-e="add">' + ic('plus') + ' 新增店家</button>' : '');
+      (canAdd ? '<button class="tt-btn tt-btn-primary fm-add" type="button" data-e="add">' + ic('plus') + ' ' + addLabel() + '</button>' : '');
   }
+  // 看得見的圖層都是同一種類型就用那種的詞（新增店家／新增步道），不然就「新增地點」
+  function oneKind() { const ks = {}; visibleMaps().forEach(function (m) { ks[m.map.kind] = 1; }); const a = Object.keys(ks); return a.length === 1 ? KINDS[a[0]] : null; }
+  function addLabel() { const k = oneKind(); return '新增' + (k ? k.one : '地點'); }
+  function countText() { const n = filtered().length, total = allPlaces().length, k = oneKind(); const u = ' 個' + (k ? k.one : '地點'); return n === total ? total + u : n + ' / ' + total + u; }
   function placeRow(x) {
     const p = x.p, m = x.m;
     return '<div class="fm-row' + (S.selected === p.id ? ' is-sel' : '') + (p.visited ? ' is-visited' : '') + (p.lat === null ? ' is-nowhere' : '') + '" data-id="' + esc(p.id) + '" tabindex="0">' +
-      '<span class="fm-row-pin" style="--c:' + m.map.color + '" title="' + esc(m.name) + '">' + ic('map-pin') + '</span>' +
+      '<span class="fm-row-pin" style="--c:' + m.map.color + '" title="' + esc(m.name) + '">' + ic(m.map.icon) + '</span>' +
       '<div class="fm-row-main"><div class="fm-row-top"><b class="fm-row-name">' + esc(p.name) + '</b>' + (p.rating ? '<span class="fm-stars">' + stars(p.rating) + '</span>' : '') + (p.visited ? '<span class="fm-badge fm-badge-v">去過</span>' : '') + (p.lat === null ? '<span class="fm-badge fm-badge-n">未定位</span>' : '') + '</div>' +
       (p.address ? '<div class="fm-row-addr">' + esc(p.address) + '</div>' : '') +
       (p.tags.length || p.source ? '<div class="fm-row-meta">' + tagsHTML(p.tags) + sourceHTML(p.source) + '</div>' : '') + '</div>' +
@@ -232,7 +261,7 @@
     const rows = filtered();
     if (!rows.length) {
       const total = allPlaces().length;
-      list.innerHTML = '<div class="fm-empty">' + ic('map-pin') + '<p>' + (total ? '沒有符合的店家，換個關鍵字或清掉篩選。' : mapsOf().length ? '還沒有店家。按右上「新增店家」，填店名跟地址就會出現在地圖上。' : '先建立一張地圖。') + '</p></div>';
+      list.innerHTML = '<div class="fm-empty">' + ic('map-pin') + '<p>' + (total ? '沒有符合的地點，換個關鍵字或清掉篩選。' : mapsOf().length ? '還沒有地點。按右上「' + addLabel() + '」，填名稱跟地址就會出現在地圖上。' : '先新增一個圖層。') + '</p></div>';
       return;
     }
     list.innerHTML = rows.map(placeRow).join('');
@@ -255,7 +284,7 @@
     tiles.on('tileerror', function () {
       tileErrors++;
       if (tileErrors >= 4 && !tileOk && !built.querySelector('.fm-tile-warn')) {
-        const w = el('div', 'fm-tile-warn', ic('alert-triangle') + ' 底圖載不進來（tile.openstreetmap.org 沒有回應或回 403）。店家的針跟清單不受影響；請檢查網路，或稍後再試。');
+        const w = el('div', 'fm-tile-warn', ic('alert-triangle') + ' 底圖載不進來（tile.openstreetmap.org 沒有回應或回 403）。地點的針跟清單不受影響；請檢查網路，或稍後再試。');
         built.querySelector('.fm-map-wrap').appendChild(w);
       }
     });
@@ -267,8 +296,8 @@
     });
     leaf.on('popupclose', function () { /* 保持選取，只收小卡 */ });
   }
-  function pinIcon(color, sel) {
-    return L.divIcon({ className: 'fm-pin-wrap', html: '<i class="fm-pin' + (sel ? ' is-sel' : '') + '" style="--c:' + color + '"></i>', iconSize: [26, 34], iconAnchor: [13, 32], popupAnchor: [0, -30] });
+  function pinIcon(color, sel, icon) {
+    return L.divIcon({ className: 'fm-pin-wrap', html: '<i class="fm-pin' + (sel ? ' is-sel' : '') + '" style="--c:' + color + '">' + ic(icon || 'map-pin') + '</i>', iconSize: [26, 34], iconAnchor: [13, 32], popupAnchor: [0, -30] });
   }
   function popupHTML(x) {
     const p = x.p, m = x.m;
@@ -288,17 +317,17 @@
       keep[key] = 1;
       const sel = S.selected === p.id;
       let mk = markers[key];
-      const sig = [p.lat, p.lng, x.m.map.color, sel ? 1 : 0, p.name, p.address, p.tags.join(','), p.source, p.note, p.rating, p.visited ? 1 : 0, x.m.name].join('|');
+      const sig = [p.lat, p.lng, x.m.map.color, x.m.map.icon, sel ? 1 : 0, p.name, p.address, p.tags.join(','), p.source, p.note, p.rating, p.visited ? 1 : 0, x.m.name].join('|');
       if (mk && mk._fmSig === sig) return;
       if (!mk) {
-        mk = L.marker([p.lat, p.lng], { icon: pinIcon(x.m.map.color, sel), title: p.name, riseOnHover: true, keyboard: false });
+        mk = L.marker([p.lat, p.lng], { icon: pinIcon(x.m.map.color, sel, x.m.map.icon), title: p.name, riseOnHover: true, keyboard: false });
         mk.on('click', function () { S.selected = p.id; paintList(); paintMarkers(); scrollRowIntoView(p.id); });
         mk.bindPopup('', { maxWidth: 300, className: 'fm-popup', autoPanPadding: [30, 30] });
         markerLayer.addLayer(mk);
         markers[key] = mk;
       } else {
         mk.setLatLng([p.lat, p.lng]);
-        mk.setIcon(pinIcon(x.m.map.color, sel));
+        mk.setIcon(pinIcon(x.m.map.color, sel, x.m.map.icon));
       }
       mk.setPopupContent(popupHTML(x));
       mk.setZIndexOffset(sel ? 1000 : 0);
@@ -310,7 +339,7 @@
   function fitAll(rows) {
     rows = rows || filtered().filter(function (x) { return x.p.lat !== null; });
     if (!leaf) return;
-    if (!rows.length) { toast('沒有定位過的店家'); return; }
+    if (!rows.length) { toast('沒有定位過的地點'); return; }
     if (rows.length === 1) { leaf.setView([rows[0].p.lat, rows[0].p.lng], 16); return; }
     leaf.fitBounds(L.latLngBounds(rows.map(function (x) { return [x.p.lat, x.p.lng]; })), { padding: [40, 40], maxZoom: 17 });
   }
@@ -365,7 +394,7 @@
       let b;
       if ((b = t.closest('[data-e]'))) {
         const a = b.getAttribute('data-e');
-        if (a === 'newmap') return newMapDialog();
+        if (a === 'newmap') return layerDialog(null);
         if (a === 'add') return openEditor(null, null);
         if (a === 'fit') return fitAll();
         if (a === 'cleartags') { S.tags = []; paint(); paintMarkers(); return; }
@@ -395,14 +424,14 @@
   }
   function mapMenu(m, x, y) {
     menuAt(x, y, [
-      ['only', '只顯示這張'], ['all', '顯示全部'], null,
-      ['rename', '重新命名', m.ro || !O.onRename], ['color', '變更顏色', m.ro], ['tags', '標籤…', !O.onTags], null,
+      ['only', '只顯示這層'], ['all', '顯示全部'], null,
+      ['edit', '編輯圖層…', m.ro], ['color', '變更顏色', m.ro], ['tags', '標籤…', !O.onTags], null,
       ['export', '匯出 CSV'], null,
       ['delete', '移到垃圾桶', m.ro || !O.onDelete, true]
     ], function (a) {
       if (a === 'only') { S.hidden = {}; mapsOf().forEach(function (o) { if (o.id !== m.id) S.hidden[o.id] = 1; }); lsSet('fmHidden', JSON.stringify(S.hidden)); paint(); paintMarkers(); fitted = false; paintMarkers(); }
       else if (a === 'all') { S.hidden = {}; lsSet('fmHidden', '{}'); paint(); paintMarkers(); }
-      else if (a === 'rename') O.onRename(m.note);
+      else if (a === 'edit') layerDialog(m);
       else if (a === 'color') colorPop(m, x, y);
       else if (a === 'tags') O.onTags(m.note);
       else if (a === 'export') exportCSV(m);
@@ -420,8 +449,8 @@
     const p = x.p, ro = x.m.ro;
     menuAt(px, py, [
       ['show', '在地圖上看', p.lat === null], ['gmaps', '在 Google 地圖開啟'], null,
-      ['edit', '編輯', ro], ['visited', p.visited ? '標成還沒去' : '標成去過', ro], ['copy', '複製到別張地圖', ro || mapsOf().filter(function (o) { return !o.ro && o.id !== x.m.id; }).length === 0], null,
-      ['delete', '刪除店家', ro, true]
+      ['edit', '編輯', ro], ['visited', p.visited ? '標成還沒去' : '標成去過', ro], ['copy', '複製到別的圖層', ro || mapsOf().filter(function (o) { return !o.ro && o.id !== x.m.id; }).length === 0], null,
+      ['delete', '刪除' + x.m.kind.one, ro, true]
     ], function (a) {
       if (a === 'show') focusPlace(p.id, true);
       else if (a === 'gmaps') window.open(gmapsUrl(p), '_blank', 'noopener');
@@ -430,7 +459,7 @@
       else if (a === 'copy') copyPlaceDialog(x);
       else if (a === 'delete') {
         const go = function (yes) { if (!yes) return; x.m.map.places = x.m.map.places.filter(function (q) { return q.id !== p.id; }); if (S.selected === p.id) S.selected = null; save(x.m); paint(); paintMarkers(); toast('已刪除「' + p.name + '」'); };
-        if (global.App && App.confirm) App.confirm({ title: '刪除店家', message: '刪除「' + p.name + '」？這張地圖的版本歷史裡還找得回來。', ok: '刪除', danger: true }).then(go); else go(window.confirm('刪除「' + p.name + '」？'));
+        if (global.App && App.confirm) App.confirm({ title: '刪除' + x.m.kind.one, message: '刪除「' + p.name + '」？這個圖層的版本歷史裡還找得回來。', ok: '刪除', danger: true }).then(go); else go(window.confirm('刪除「' + p.name + '」？'));
       }
     });
   }
@@ -446,47 +475,81 @@
     });
   }
   function exportCSV(m) {
-    const cols = ['店名', '地址', '資料來源', '標籤', '緯度', '經度', '評分', '去過', '備註'];
+    const cols = ['名稱', '地址', '資料來源', '標籤', '緯度', '經度', '評分', '去過', '備註'];
     const q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     const lines = [cols.join(',')].concat(m.map.places.map(function (p) { return [p.name, p.address, p.source, p.tags.join(' '), p.lat === null ? '' : p.lat, p.lng === null ? '' : p.lng, p.rating || '', p.visited ? '是' : '', p.note].map(q).join(','); }));
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (m.name || '美食地圖') + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (m.name || '圖層') + '.csv'; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
   }
-  function newMapDialog() {
+  // 新增／編輯圖層：名稱、類型（決定用詞）、圖示、顏色、說明。名稱改了走 onRename（筆記標題），其他寫進圍欄。
+  function layerDialog(m) {
     closePop();
-    if (!O.onCreate) return;
-    const ov = el('div', 'modal-overlay tt-dialog-overlay');
-    ov.innerHTML = '<div class="modal tt-dialog fm-dialog-sm" role="dialog" aria-modal="true"><div class="modal-title">建立地圖</div><div class="tt-dialog-body">' +
-      '<div class="tt-ed-row"><input class="tt-input" type="text" maxlength="100" placeholder="地圖名稱，例如：台北小吃、東京 2027" data-f="title"></div>' +
-      '<div class="tt-ed-row fm-colors-row">' + COLORS.map(function (c, i) { return '<button type="button" class="fm-color' + (i === 0 ? ' on' : '') + '" data-c="' + c + '" style="background:' + c + '"></button>'; }).join('') + '</div>' +
-      '</div><div class="modal-actions"><button class="btn" type="button" data-e="close">取消</button><button class="btn btn-primary" type="button" data-e="ok">建立</button></div></div>';
+    if (!m && !O.onCreate) return;
+    const isNew = !m;
+    const cur = m ? m.map : { kind: 'food', icon: KINDS.food.icon, color: KINDS.food.color, desc: '' };
+    let kind = cur.kind, icon = cur.icon, color = cur.color;
+    const ov = el('div', 'modal-overlay tt-dialog-overlay fm-ov');
+    ov.innerHTML = '<div class="modal tt-dialog fm-dialog-sm" role="dialog" aria-modal="true"><div class="modal-title">' + (isNew ? '新增圖層' : '編輯圖層') + '</div><div class="tt-dialog-body">' +
+      '<div class="tt-ed-row"><span class="tt-ed-l">名稱</span><input class="tt-input" type="text" maxlength="100" placeholder="例如：美食地圖、步道地圖、咖啡廳" data-f="title" value="' + esc(m ? m.name : '') + '"></div>' +
+      '<div class="tt-ed-row"><span class="tt-ed-l">類型</span><div class="fm-kinds">' + KIND_ORDER.map(function (k) { return '<button type="button" class="fm-kind' + (k === kind ? ' on' : '') + '" data-kind="' + k + '">' + ic(KINDS[k].icon) + esc(KINDS[k].label) + '<small>' + esc(KINDS[k].one) + '</small></button>'; }).join('') + '</div></div>' +
+      '<div class="tt-ed-row"><span class="tt-ed-l">圖示</span><div class="fm-icons">' + LAYER_ICONS.map(function (i) { return '<button type="button" class="fm-icon-b' + (i === icon ? ' on' : '') + '" data-icon="' + i + '" title="' + i + '">' + ic(i) + '</button>'; }).join('') + '</div></div>' +
+      '<div class="tt-ed-row"><span class="tt-ed-l">顏色</span><div class="fm-colors-row">' + COLORS.map(function (c) { return '<button type="button" class="fm-color' + (c === color ? ' on' : '') + '" data-c="' + c + '" style="background:' + c + '"></button>'; }).join('') + '</div></div>' +
+      '<div class="tt-ed-row tt-ed-notes"><span class="tt-ed-l">說明</span><textarea class="tt-input" rows="2" maxlength="500" placeholder="這個圖層放什麼（選填）" data-f="desc">' + esc(cur.desc || '') + '</textarea></div>' +
+      '<div class="fm-layer-preview"><i class="fm-pin" style="--c:' + color + '">' + ic(icon) + '</i><span>針會長這樣</span></div>' +
+      '</div><div class="modal-actions">' + (isNew || !O.onDelete ? '' : '<button class="btn tt-ed-del" type="button" data-e="del">移到垃圾桶</button>') + '<span class="tt-sp"></span><button class="btn" type="button" data-e="close">取消</button><button class="btn btn-primary" type="button" data-e="ok">' + (isNew ? '建立' : '儲存') + '</button></div></div>';
     document.body.appendChild(ov);
-    let color = COLORS[0];
     const inp = ov.querySelector('[data-f="title"]');
+    const preview = function () { const p = ov.querySelector('.fm-layer-preview .fm-pin'); p.style.setProperty('--c', color); p.innerHTML = ic(icon); };
     const close = function () { ov.remove(); };
-    const ok = function () { const t = inp.value.trim(); if (!t) { inp.focus(); return; } close(); O.onCreate({ title: t, color: color }); };
+    const ok = function () {
+      const t = inp.value.trim();
+      if (!t) { inp.focus(); toast('圖層要有名稱'); return; }
+      const desc = ov.querySelector('[data-f="desc"]').value.trim();
+      close();
+      if (isNew) { O.onCreate({ title: t, kind: kind, icon: icon, color: color, desc: desc }); return; }
+      const changed = kind !== m.map.kind || icon !== m.map.icon || color !== m.map.color || desc !== (m.map.desc || '');
+      if (changed) { m.map.kind = kind; m.map.icon = icon; m.map.color = color; m.map.desc = desc; save(m); }
+      if (t !== m.name && O.onRename) O.onRename(m.note, t);
+      paint(); paintMarkers();
+    };
     ov.addEventListener('click', function (e) {
-      const c = e.target.closest('[data-c]'); if (c) { color = c.getAttribute('data-c'); ov.querySelectorAll('.fm-color').forEach(function (b) { b.classList.toggle('on', b === c); }); return; }
-      const b = e.target.closest('[data-e]'); if (!b) { if (e.target === ov) close(); return; }
-      if (b.getAttribute('data-e') === 'close') close(); else ok();
+      let b;
+      if ((b = e.target.closest('[data-kind]'))) {
+        const k = b.getAttribute('data-kind');
+        // 換類型時，圖示／顏色還是那一型的預設就跟著換，使用者自己挑過的不動
+        if (icon === KINDS[kind].icon) icon = KINDS[k].icon;
+        if (color === KINDS[kind].color) color = KINDS[k].color;
+        kind = k;
+        ov.querySelectorAll('.fm-kind').forEach(function (x) { x.classList.toggle('on', x === b); });
+        ov.querySelectorAll('.fm-icon-b').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-icon') === icon); });
+        ov.querySelectorAll('.fm-color').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-c') === color); });
+        preview(); return;
+      }
+      if ((b = e.target.closest('[data-icon]'))) { icon = b.getAttribute('data-icon'); ov.querySelectorAll('.fm-icon-b').forEach(function (x) { x.classList.toggle('on', x === b); }); preview(); return; }
+      if ((b = e.target.closest('[data-c]'))) { color = b.getAttribute('data-c'); ov.querySelectorAll('.fm-color').forEach(function (x) { x.classList.toggle('on', x === b); }); preview(); return; }
+      b = e.target.closest('[data-e]');
+      if (!b) { if (e.target === ov) close(); return; }
+      const a = b.getAttribute('data-e');
+      if (a === 'close') close(); else if (a === 'ok') ok(); else if (a === 'del') { close(); O.onDelete(m.note); }
     });
     ov.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target === inp) { e.preventDefault(); ok(); } if (e.key === 'Escape') { e.stopPropagation(); close(); } });
     setTimeout(function () { inp.focus(); }, 0);
   }
 
-  // ---------------- 新增／編輯店家 ----------------
+  // ---------------- 新增／編輯地點（店家／步道，看圖層類型） ----------------
   function openEditor(place, m) {
     closePop();
     const maps = mapsOf().filter(function (x) { return !x.ro; });
-    if (!maps.length) { toast('先建立一張地圖'); return; }
+    if (!maps.length) { toast('先新增一個圖層'); return; }
     m = m || mapById(S.lastMap) || maps[0];
+    const w = m.kind;
     const isNew = !place;
     const base = place ? JSON.parse(JSON.stringify(place)) : { id: uid('p'), name: '', address: '', source: '', tags: S.tags.slice(), lat: null, lng: null, note: '', rating: 0, visited: false, added: Date.now() };
     const allTags = tagCounts().map(function (t) { return t.name; });
     const ov = el('div', 'modal-overlay tt-dialog-overlay fm-ov');
     ov.innerHTML = '<div class="modal tt-dialog fm-dialog" role="dialog" aria-modal="true">' +
-      '<div class="tt-ed-head"><input class="tt-ed-title" type="text" maxlength="200" placeholder="店名" value="' + esc(base.name) + '" data-f="name"><button class="tt-tb" type="button" data-e="close" title="關閉">' + ic('x') + '</button></div>' +
+      '<div class="tt-ed-head"><span class="fm-ed-kind" style="color:' + m.map.color + '" title="' + esc(m.name) + '">' + ic(m.map.icon) + '</span><input class="tt-ed-title" type="text" maxlength="200" placeholder="' + esc(w.name) + '" value="' + esc(base.name) + '" data-f="name"><button class="tt-tb" type="button" data-e="close" title="關閉">' + ic('x') + '</button></div>' +
       '<div class="tt-dialog-body">' +
       '<div class="tt-ed-row"><span class="tt-ed-l">' + ic('map-pin') + '</span><input class="tt-input" type="text" maxlength="300" placeholder="地址（填了按「查地址」就會定位）" data-f="address" value="' + esc(base.address) + '"><button class="tt-btn" type="button" data-e="geocode">查地址</button></div>' +
       '<div class="fm-geo-results" hidden></div>' +
@@ -497,7 +560,7 @@
       (allTags.length ? '<div class="tt-ed-row fm-tag-sugg"><span class="tt-ed-l"></span><div>' + allTags.slice(0, 16).map(function (t) { return '<button type="button" class="fm-tag fm-tag-b" ' + tagStyle(t) + ' data-sugg="' + esc(t) + '">' + esc(t) + '</button>'; }).join('') + '</div></div>' : '') +
       '<div class="tt-ed-row"><span class="tt-ed-l">' + ic('star') + '</span><div class="fm-rate" data-f="rating">' + [1, 2, 3, 4, 5].map(function (i) { return '<button type="button" class="fm-rate-b' + (i <= base.rating ? ' on' : '') + '" data-r="' + i + '" title="' + i + ' 星">★</button>'; }).join('') + '<button type="button" class="fm-rate-clr" data-r="0" title="不評分">清除</button></div>' +
       '<label class="tt-ed-check"><input type="checkbox" data-f="visited"' + (base.visited ? ' checked' : '') + '> 去過了</label></div>' +
-      (maps.length > 1 ? '<div class="tt-ed-row"><span class="tt-ed-l">地圖</span><select class="tt-input" data-f="map">' + maps.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div>' : '') +
+      (maps.length > 1 ? '<div class="tt-ed-row"><span class="tt-ed-l">圖層</span><select class="tt-input" data-f="map">' + maps.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div>' : '') +
       '<div class="tt-ed-row tt-ed-notes"><span class="tt-ed-l">' + ic('file-text') + '</span><textarea class="tt-input" rows="3" maxlength="2000" placeholder="備註：推薦什麼、營業時間、要不要訂位…" data-f="note">' + esc(base.note) + '</textarea></div>' +
       '</div><div class="modal-actions">' + (isNew ? '' : '<button class="btn tt-ed-del" type="button" data-e="del">刪除</button>') + '<span class="tt-sp"></span><button class="btn" type="button" data-e="close">取消</button><button class="btn btn-primary" type="button" data-e="save">' + (isNew ? '新增' : '儲存') + '</button></div></div>';
     document.body.appendChild(ov);
@@ -516,7 +579,7 @@
     const results = q('.fm-geo-results');
     const geocode = function () {
       const addr = f('address').value.trim() || f('name').value.trim();
-      if (!addr) { toast('先填地址或店名'); f('address').focus(); return; }
+      if (!addr) { toast('先填地址或名稱'); f('address').focus(); return; }
       if (!global.Store || !Store.geocode) return;
       results.hidden = false; results.innerHTML = '<div class="fm-geo-wait">查詢中…</div>';
       Store.geocode(addr).then(function (r) {
@@ -561,7 +624,7 @@
       }
       else if (a === 'del') {
         const go = function (yes) { if (!yes) return; m.map.places = m.map.places.filter(function (p) { return p.id !== base.id; }); if (S.selected === base.id) S.selected = null; save(m); close(); paint(); paintMarkers(); };
-        if (global.App && App.confirm) App.confirm({ title: '刪除店家', message: '刪除「' + (f('name').value.trim() || base.name) + '」？', ok: '刪除', danger: true }).then(go); else go(window.confirm('刪除？'));
+        if (global.App && App.confirm) App.confirm({ title: '刪除' + w.one, message: '刪除「' + (f('name').value.trim() || base.name) + '」？', ok: '刪除', danger: true }).then(go); else go(window.confirm('刪除？'));
       }
       else if (a === 'save') doSave();
     });
@@ -572,6 +635,7 @@
     chipIn.addEventListener('input', function () { if (/[,，]/.test(chipIn.value)) { chipIn.value.split(/[,，]/).forEach(addTag); chipIn.value = ''; } });
     chipIn.addEventListener('blur', function () { if (chipIn.value.trim()) { addTag(chipIn.value); chipIn.value = ''; } });
     f('address').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); geocode(); } });
+    if (f('map')) f('map').addEventListener('change', function () { const t = mapById(f('map').value); if (!t) return; f('name').placeholder = t.kind.name; const k = ov.querySelector('.fm-ed-kind'); k.style.color = t.map.color; k.title = t.name; k.innerHTML = ic(t.map.icon); });
     ov.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') { e.stopPropagation(); if (!results.hidden) { results.hidden = true; return; } close(); }
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doSave(); }
@@ -579,7 +643,7 @@
     const close = function () { if (S.picking) endPick(); ov.remove(); };
     const doSave = function () {
       const name = f('name').value.trim();
-      if (!name) { f('name').focus(); toast('店名要填'); return; }
+      if (!name) { f('name').focus(); toast(w.name + '要填'); return; }
       if (chipIn.value.trim()) { addTag(chipIn.value); chipIn.value = ''; }
       const target = f('map') ? mapById(f('map').value) || m : m;
       const p = cleanPlace({ id: base.id, name: name, address: f('address').value, source: f('source').value, tags: tags, lat: lat, lng: lng, note: f('note').value, rating: rating, visited: f('visited').checked, added: base.added }, {});
@@ -614,5 +678,5 @@
     fitted = false;
   }
 
-  global.FoodMap = { isNote: isNote, generate: generate, parse: parse, serialize: serialize, payloadOf: payloadOf, wrap: wrap, blockHTML: blockHTML, render: render, teardown: teardown, closePop: closePop, reveal: reveal, state: S, COLORS: COLORS };
+  global.FoodMap = { isNote: isNote, generate: generate, KINDS: KINDS, DEFAULT_LAYERS: DEFAULT_LAYERS, parse: parse, serialize: serialize, payloadOf: payloadOf, wrap: wrap, blockHTML: blockHTML, render: render, teardown: teardown, closePop: closePop, reveal: reveal, state: S, COLORS: COLORS };
 })(window);

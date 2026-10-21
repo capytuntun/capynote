@@ -6755,3 +6755,27 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
 }
 .fm-tile-warn { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 1000; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); box-shadow: var(--shadow); font-size: var(--fs-sm); line-height: 1.4; }
 .fm-tile-warn .ic-svg { width: 16px; height: 16px; flex: 0 0 auto; color: #d9962a; }
+
+/* 圖資中心：圖層的圖示（清單列、針、對話框） */
+.fm-layer-ic { display: inline-flex; flex: 0 0 auto; }
+.fm-layer-ic .ic-svg { width: 14px; height: 14px; }
+.fm-pin::after { display: none; }
+.fm-pin .ic-svg { position: absolute; left: 50%; top: 50%; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px; transform: rotate(45deg); color: #fff; stroke-width: 2.4; }
+.fm-ed-kind { display: inline-flex; flex: 0 0 auto; }
+.fm-ed-kind .ic-svg { width: 22px; height: 22px; }
+.fm-dialog-sm { width: 480px; }
+.fm-kinds { display: flex; gap: 6px; flex: 1 1 auto; }
+.fm-kind { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; flex: 1 1 0; padding: 8px 4px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg); color: var(--text-dim); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.fm-kind .ic-svg { width: 18px; height: 18px; }
+.fm-kind small { font-size: var(--fs-xs); color: var(--text-faint); }
+.fm-kind:hover { background: var(--row-hover); }
+.fm-kind.on { border-color: var(--accent); background: var(--accent-weak); color: var(--text); font-weight: 600; }
+.fm-icons { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 auto; }
+.fm-icon-b { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-dim); cursor: pointer; padding: 0; }
+.fm-icon-b .ic-svg { width: 16px; height: 16px; }
+.fm-icon-b:hover { background: var(--row-hover); }
+.fm-icon-b.on { border-color: var(--accent); background: var(--accent-weak); color: var(--text); }
+.fm-layer-preview { display: flex; align-items: center; gap: 14px; margin: 10px 0 0 56px; color: var(--text-faint); font-size: var(--fs-xs); }
+.fm-layer-preview .fm-pin { margin: 4px 0 0 4px; }
+.markdown-body .fms-head small { padding: 0 6px; border-radius: 4px; background: var(--bg-3); color: var(--text-dim); font-size: 11px; }
+.markdown-body .fms-desc { padding: 6px 12px 0; color: var(--text-dim); font-size: 13px; }
