@@ -54,6 +54,12 @@
     const m = /(東京都|北海道|京都府|大阪府|[\u4e00-\u9fff]{1,3}県)/.exec(a);
     return m ? m[1] : '';
   }
+  // 圖片：存成 "img:<id>"（不是光 id）——伺服器判斷「誰看得到這張圖」「檔案管理算不算用到」都是找內文裡的 img:<id>，
+  // 這樣分享出去的圖層對方也看得到圖、檔案管理不會把它當成沒用到的
+  const IMG_ID = /^(?:img:)?([A-Za-z0-9_][\w.-]{0,63})$/;
+  function imgId(v) { const m = IMG_ID.exec(String(v || '').trim()); return m ? m[1] : ''; }
+  function imgSrc(v) { return '/api/images/' + encodeURIComponent(imgId(v)); }
+  function cleanImages(a) { const out = []; (Array.isArray(a) ? a : []).forEach(function (v) { const id = imgId(v); if (id && out.indexOf('img:' + id) < 0 && out.length < 12) out.push('img:' + id); }); return out; }
   function safeUrl(u) { u = str(u, 500).trim(); return /^https?:\/\/\S+$/i.test(u) ? u : ''; }
   // 完整的 Google 地圖網址裡常有座標（@lat,lng、!3dlat!4dlng、q=lat,lng）；短網址 maps.app.goo.gl 沒有，只能靠地址定位
   function coordsFromUrl(u) {
@@ -92,7 +98,7 @@
       id: id, name: str(p.name, 200).trim(), address: address, city: normCity(p.city) || cityFromAddress(address), source: str(p.source, 500).trim(), gmap: gmap,
       tags: cleanTags(p.tags), lat: lat !== null && lng !== null ? lat : null, lng: lat !== null && lng !== null ? lng : null,
       note: str(p.note, 2000), rating: Math.max(0, Math.min(5, parseInt(p.rating, 10) || 0)), visited: !!p.visited,
-      added: p.added > 0 ? Math.floor(p.added) : Date.now()
+      images: cleanImages(p.images), added: p.added > 0 ? Math.floor(p.added) : Date.now()
     };
     if (!o.name) o.name = '（未命名）';
     return o;
@@ -137,7 +143,8 @@
       (m.places.length ? '<ul class="fms-list">' + m.places.map(function (p) {
         return '<li' + (p.visited ? ' class="is-visited"' : '') + '><div class="fms-row"><span class="fms-pin" style="color:' + m.color + '">' + ic(m.icon) + '</span><b class="fms-name">' + esc(p.name) + '</b>' + (p.rating ? '<span class="fms-stars">' + stars(p.rating) + '</span>' : '') + (p.visited ? '<span class="fms-visited">去過</span>' : '') + tagsHTML(p.tags, 'fms-tag') + '</div>' +
           (p.address || p.city ? '<div class="fms-addr">' + (p.city ? '<span class="fms-city">' + esc(p.city) + '</span>' : '') + esc(p.address) + '</div>' : '') +
-          '<div class="fms-meta">' + sourceHTML(p.source, 'fms-src') + '<a class="fms-src" href="' + esc(gmapsUrl(p)) + '" target="_blank" rel="noopener noreferrer">' + ic('map-pin') + 'Google 地圖</a>' + (p.note ? '<span class="fms-note">' + esc(p.note) + '</span>' : '') + '</div></li>';
+          '<div class="fms-meta">' + sourceHTML(p.source, 'fms-src') + '<a class="fms-src" href="' + esc(gmapsUrl(p)) + '" target="_blank" rel="noopener noreferrer">' + ic('map-pin') + 'Google 地圖</a>' + (p.note ? '<span class="fms-note">' + esc(p.note) + '</span>' : '') + '</div>' +
+          (p.images.length ? '<div class="fms-imgs">' + p.images.map(function (v) { return '<img class="fms-img" data-img-id="' + esc(imgId(v)) + '" alt="' + esc(p.name) + '">'; }).join('') + '</div>' : '') + '</li>';
       }).join('') + '</ul>' : '<div class="fms-empty">還沒有' + esc(k.one) + '</div>') + '</div>';
   }
 
@@ -285,6 +292,7 @@
       '<div class="fm-row-main"><div class="fm-row-top"><b class="fm-row-name">' + esc(p.name) + '</b>' + (p.rating ? '<span class="fm-stars">' + stars(p.rating) + '</span>' : '') + (p.visited ? '<span class="fm-badge fm-badge-v">去過</span>' : '') + (p.lat === null ? '<span class="fm-badge fm-badge-n">未定位</span>' : '') + '</div>' +
       (p.address || p.city ? '<div class="fm-row-addr">' + (p.city ? '<span class="fm-row-city">' + esc(p.city) + '</span>' : '') + esc(p.address) + '</div>' : '') +
       '<div class="fm-row-meta">' + tagsHTML(p.tags) + sourceHTML(p.source) + '<a class="fm-src fm-gmap" href="' + esc(gmapsUrl(p)) + '" target="_blank" rel="noopener noreferrer" title="在 Google 地圖開啟">' + ic('map-pin') + 'Google 地圖</a></div></div>' +
+      (p.images.length ? '<button type="button" class="fm-row-thumb" data-gallery="' + esc(p.id) + '" title="看圖片"><img src="' + esc(imgSrc(p.images[0])) + '" alt="" loading="lazy">' + (p.images.length > 1 ? '<span>' + p.images.length + '</span>' : '') + '</button>' : '') +
       (m.ro ? '' : '<div class="fm-row-tools"><button class="tt-tb fm-row-tb" type="button" data-edit="' + esc(p.id) + '" title="編輯">' + ic('pencil') + '</button><button class="tt-tb fm-row-tb" type="button" data-pmore="' + esc(p.id) + '" title="更多">' + ic('more-horizontal') + '</button></div>') + '</div>';
   }
   function paintList() {
@@ -337,6 +345,7 @@
       (p.tags.length ? '<div class="fm-pop-tags">' + tagsHTML(p.tags) + '</div>' : '') +
       (p.source ? '<div class="fm-pop-src">來源：' + sourceHTML(p.source) + '</div>' : '') +
       (p.note ? '<div class="fm-pop-note">' + esc(p.note) + '</div>' : '') +
+      (p.images.length ? '<div class="fm-pop-imgs">' + p.images.slice(0, 4).map(function (v, i) { return '<button type="button" class="fm-pop-img" data-gallery="' + esc(p.id) + '" data-i="' + i + '"><img src="' + esc(imgSrc(v)) + '" alt="">' + (i === 3 && p.images.length > 4 ? '<span>+' + (p.images.length - 4) + '</span>' : '') + '</button>'; }).join('') + '</div>' : '') +
       '<div class="fm-pop-foot"><small>' + esc(m.name) + '</small><span class="tt-sp"></span><a href="' + esc(gmapsUrl(p)) + '" target="_blank" rel="noopener noreferrer" title="在 Google 地圖開啟">Google 地圖</a><a href="' + esc(osmUrl(p)) + '" target="_blank" rel="noopener noreferrer" title="在 OpenStreetMap 開啟">OSM</a>' + (m.ro ? '' : '<button type="button" data-edit="' + esc(p.id) + '">編輯</button>') + '</div></div>';
   }
   function paintMarkers() {
@@ -348,7 +357,7 @@
       keep[key] = 1;
       const sel = S.selected === p.id;
       let mk = markers[key];
-      const sig = [p.lat, p.lng, x.m.map.color, x.m.map.icon, sel ? 1 : 0, p.name, p.address, p.tags.join(','), p.source, p.note, p.rating, p.visited ? 1 : 0, x.m.name].join('|');
+      const sig = [p.lat, p.lng, x.m.map.color, x.m.map.icon, sel ? 1 : 0, p.name, p.address, p.tags.join(','), p.source, p.note, p.rating, p.visited ? 1 : 0, p.images.join(','), x.m.name].join('|');
       if (mk && mk._fmSig === sig) return;
       if (!mk) {
         mk = L.marker([p.lat, p.lng], { icon: pinIcon(x.m.map.color, sel, x.m.map.icon), title: p.name, riseOnHover: true, keyboard: false });
@@ -443,6 +452,7 @@
         paint(); paintMarkers(); return;
       }
       if ((b = t.closest('[data-more]'))) { const m = mapById(b.getAttribute('data-more')); if (m) { const r = b.getBoundingClientRect(); mapMenu(m, r.left, r.bottom + 4); } return; }
+      if ((b = t.closest('[data-gallery]'))) { const x = findPlace(b.getAttribute('data-gallery')); if (x && x.p.images.length) openGallery(x.p, +(b.getAttribute('data-i') || 0)); return; }
       if ((b = t.closest('[data-edit]'))) { const x = findPlace(b.getAttribute('data-edit')); if (x && !x.m.ro) openEditor(x.p, x.m); return; }
       if ((b = t.closest('[data-pmore]'))) { const x = findPlace(b.getAttribute('data-pmore')); if (x) { const r = b.getBoundingClientRect(); placeMenu(x, r.left, r.bottom + 4); } return; }
       if (t.closest('a')) return;
@@ -517,6 +527,45 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (m.name || '圖層') + '.csv'; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
   }
+  // ---------------- 圖片檢視（點小圖放大，←／→ 換張，Esc／點背景關） ----------------
+  let galleryEl = null;
+  function closeGallery() { if (galleryEl) { galleryEl.remove(); galleryEl = null; } }
+  function openGallery(p, i) {
+    closeGallery();
+    const ids = p.images.slice();
+    if (!ids.length) return;
+    let cur = Math.max(0, Math.min(ids.length - 1, i || 0));
+    galleryEl = el('div', 'fm-gallery');
+    galleryEl.innerHTML = '<div class="fm-gallery-bar"><b></b><span class="fm-gallery-n"></span><span class="tt-sp"></span><a class="tt-tb" target="_blank" rel="noopener noreferrer" title="新分頁開啟">' + ic('external-link') + '</a><button type="button" class="tt-tb" data-g="close" title="關閉（Esc）">' + ic('x') + '</button></div>' +
+      '<div class="fm-gallery-stage"><button type="button" class="fm-gallery-nav" data-g="prev" title="上一張（←）">' + ic('chevron-left') + '</button><img alt=""><button type="button" class="fm-gallery-nav" data-g="next" title="下一張（→）">' + ic('chevron-right') + '</button></div>' +
+      '<div class="fm-gallery-thumbs">' + ids.map(function (v, k) { return '<button type="button" data-g="go" data-k="' + k + '"><img src="' + esc(imgSrc(v)) + '" alt=""></button>'; }).join('') + '</div>';
+    const show = function () {
+      galleryEl.querySelector('.fm-gallery-stage img').src = imgSrc(ids[cur]);
+      galleryEl.querySelector('.fm-gallery-bar b').textContent = p.name;
+      galleryEl.querySelector('.fm-gallery-n').textContent = (cur + 1) + ' / ' + ids.length;
+      galleryEl.querySelector('.fm-gallery-bar a').href = imgSrc(ids[cur]);
+      galleryEl.querySelectorAll('.fm-gallery-thumbs button').forEach(function (b, k) { b.classList.toggle('on', k === cur); });
+      galleryEl.querySelectorAll('.fm-gallery-nav').forEach(function (b) { b.hidden = ids.length < 2; });
+    };
+    galleryEl.addEventListener('click', function (e) {
+      const b = e.target.closest('[data-g]');
+      if (!b) { if (e.target === galleryEl || e.target.classList.contains('fm-gallery-stage')) closeGallery(); return; }
+      const g = b.getAttribute('data-g');
+      if (g === 'close') closeGallery();
+      else if (g === 'prev') { cur = (cur - 1 + ids.length) % ids.length; show(); }
+      else if (g === 'next') { cur = (cur + 1) % ids.length; show(); }
+      else if (g === 'go') { cur = +b.getAttribute('data-k'); show(); }
+    });
+    document.body.appendChild(galleryEl);
+    show();
+  }
+  document.addEventListener('keydown', function (e) {
+    if (!galleryEl) return;
+    if (e.key === 'Escape') { e.stopPropagation(); closeGallery(); }
+    else if (e.key === 'ArrowLeft') galleryEl.querySelector('[data-g="prev"]').click();
+    else if (e.key === 'ArrowRight') galleryEl.querySelector('[data-g="next"]').click();
+  }, true);
+
   // ---------------- 匯入 JSON／匯出／批次定位 ----------------
   // 匯入的 JSON 欄位名稱寬鬆對應（使用者貼的是 name／link／type／city／Address／google_map），大小寫不分；
   // 一個陣列、{ places: [...] }（我們自己匯出的）、或物件裡第一個陣列都收；單一物件也算一筆。
@@ -758,7 +807,7 @@
     m = m || mapById(S.lastMap) || maps[0];
     const w = m.kind;
     const isNew = !place;
-    const base = place ? JSON.parse(JSON.stringify(place)) : { id: uid('p'), name: '', address: '', source: '', tags: S.tags.slice(), lat: null, lng: null, note: '', rating: 0, visited: false, added: Date.now() };
+    const base = place ? JSON.parse(JSON.stringify(place)) : { id: uid('p'), name: '', address: '', source: '', tags: S.tags.slice(), lat: null, lng: null, note: '', rating: 0, visited: false, images: [], added: Date.now() };
     const allTags = tagCounts().map(function (t) { return t.name; });
     const ov = el('div', 'modal-overlay tt-dialog-overlay fm-ov');
     ov.innerHTML = '<div class="modal tt-dialog fm-dialog" role="dialog" aria-modal="true">' +
@@ -776,13 +825,38 @@
       (allTags.length ? '<div class="tt-ed-row fm-tag-sugg"><span class="tt-ed-l"></span><div>' + allTags.slice(0, 16).map(function (t) { return '<button type="button" class="fm-tag fm-tag-b" ' + tagStyle(t) + ' data-sugg="' + esc(t) + '">' + esc(t) + '</button>'; }).join('') + '</div></div>' : '') +
       '<div class="tt-ed-row"><span class="tt-ed-l">' + ic('star') + '</span><div class="fm-rate" data-f="rating">' + [1, 2, 3, 4, 5].map(function (i) { return '<button type="button" class="fm-rate-b' + (i <= base.rating ? ' on' : '') + '" data-r="' + i + '" title="' + i + ' 星">★</button>'; }).join('') + '<button type="button" class="fm-rate-clr" data-r="0" title="不評分">清除</button></div>' +
       '<label class="tt-ed-check"><input type="checkbox" data-f="visited"' + (base.visited ? ' checked' : '') + '> 去過了</label></div>' +
+      '<div class="tt-ed-row fm-imgs-row"><span class="tt-ed-l">' + ic('image') + '</span><div class="fm-ed-imgs" data-f="imgs">' + base.images.map(function (v) { return '<span class="fm-ed-img" data-img="' + esc(v) + '"><img src="' + esc(imgSrc(v)) + '" alt=""><button type="button" data-rmimg="' + esc(v) + '" title="移除">' + ic('x') + '</button></span>'; }).join('') + (O.onUpload ? '<button type="button" class="fm-ed-addimg" data-e="img" title="上傳圖片（也可以把圖片拖進來或直接貼上）">' + ic('plus') + ' 圖片</button><input type="file" accept="image/*" multiple hidden data-f="imgfile">' : '') + '</div></div>' +
       (maps.length > 1 ? '<div class="tt-ed-row"><span class="tt-ed-l">圖層</span><select class="tt-input" data-f="map">' + maps.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div>' : '') +
       '<div class="tt-ed-row tt-ed-notes"><span class="tt-ed-l">' + ic('file-text') + '</span><textarea class="tt-input" rows="3" maxlength="2000" placeholder="備註：推薦什麼、營業時間、要不要訂位…" data-f="note">' + esc(base.note) + '</textarea></div>' +
       '</div><div class="modal-actions">' + (isNew ? '' : '<button class="btn tt-ed-del" type="button" data-e="del">刪除</button>') + '<span class="tt-sp"></span><button class="btn" type="button" data-e="close">取消</button><button class="btn btn-primary" type="button" data-e="save">' + (isNew ? '新增' : '儲存') + '</button></div></div>';
     document.body.appendChild(ov);
     const q = function (sel) { return ov.querySelector(sel); };
     const f = function (name) { return q('[data-f="' + name + '"]'); };
-    let tags = base.tags.slice(), rating = base.rating, lat = base.lat, lng = base.lng, approx = false;
+    let tags = base.tags.slice(), rating = base.rating, lat = base.lat, lng = base.lng, approx = false, images = base.images.slice();
+    const imgsBox = f('imgs');
+    const addImages = function (files) {
+      files = Array.prototype.filter.call(files || [], function (x) { return /^image\//.test(x.type); });
+      if (!files.length || !O.onUpload) return;
+      const add = imgsBox.querySelector('[data-e="img"]');
+      if (add) { add.disabled = true; add.textContent = '上傳中…'; }
+      Promise.resolve(O.onUpload(files)).then(function (mds) {
+        (mds || []).forEach(function (md) {
+          const m = /\(img:([^)#]+)\)/.exec(md || '');
+          if (!m || images.length >= 12) return;
+          const v = 'img:' + m[1];
+          if (images.indexOf(v) >= 0) return;
+          images.push(v);
+          const span = el('span', 'fm-ed-img', '<img src="' + esc(imgSrc(v)) + '" alt=""><button type="button" data-rmimg="' + esc(v) + '" title="移除">' + ic('x') + '</button>');
+          span.setAttribute('data-img', v);
+          imgsBox.insertBefore(span, add);
+        });
+      }).then(function () { if (add) { add.disabled = false; add.innerHTML = ic('plus') + ' 圖片'; } });
+    };
+    if (f('imgfile')) f('imgfile').addEventListener('change', function () { addImages(f('imgfile').files); f('imgfile').value = ''; });
+    ov.addEventListener('dragover', function (e) { if (e.dataTransfer && Array.prototype.some.call(e.dataTransfer.types || [], function (t) { return t === 'Files'; })) { e.preventDefault(); ov.classList.add('is-dragover'); } });
+    ov.addEventListener('dragleave', function () { ov.classList.remove('is-dragover'); });
+    ov.addEventListener('drop', function (e) { ov.classList.remove('is-dragover'); if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); addImages(e.dataTransfer.files); } });
+    ov.addEventListener('paste', function (e) { const fs = []; Array.prototype.forEach.call(e.clipboardData && e.clipboardData.items || [], function (it) { if (it.kind === 'file') { const fl = it.getAsFile(); if (fl) fs.push(fl); } }); if (fs.length) { e.preventDefault(); addImages(fs); } });
     const chipsBox = f('tags'), chipIn = chipsBox.querySelector('input');
     const paintChips = function () {
       chipsBox.querySelectorAll('.fm-chip').forEach(function (c) { c.remove(); });
@@ -817,6 +891,7 @@
         results.hidden = true; paintCoord(); return;
       }
       if ((b = t.closest('[data-rm]'))) { const u = b.getAttribute('data-rm'); tags = tags.filter(function (x) { return x !== u; }); paintChips(); return; }
+      if ((b = t.closest('[data-rmimg]'))) { const u = b.getAttribute('data-rmimg'); images = images.filter(function (x) { return x !== u; }); const sp = b.closest('.fm-ed-img'); if (sp) sp.remove(); return; }
       if ((b = t.closest('[data-sugg]'))) { const u = b.getAttribute('data-sugg'); if (tags.some(function (x) { return x.toLowerCase() === u.toLowerCase(); })) tags = tags.filter(function (x) { return x.toLowerCase() !== u.toLowerCase(); }); else addTag(u); return; }
       if ((b = t.closest('[data-r]'))) { rating = +b.getAttribute('data-r'); ov.querySelectorAll('.fm-rate-b').forEach(function (x) { x.classList.toggle('on', +x.getAttribute('data-r') <= rating); }); return; }
       b = t.closest('[data-e]');
@@ -824,6 +899,7 @@
       const a = b.getAttribute('data-e');
       if (a === 'close') close();
       else if (a === 'geocode') geocode();
+      else if (a === 'img') { if (f('imgfile')) f('imgfile').click(); }
       else if (a === 'clearpos') { lat = null; lng = null; approx = false; paintCoord(); }
       else if (a === 'pick') {
         // 對話框先藏起來（不是關掉，欄位都留著），點完地圖再回來
@@ -865,7 +941,7 @@
       if (!name) { f('name').focus(); toast(w.name + '要填'); return; }
       if (chipIn.value.trim()) { addTag(chipIn.value); chipIn.value = ''; }
       const target = f('map') ? mapById(f('map').value) || m : m;
-      const p = cleanPlace({ id: base.id, name: name, address: f('address').value, city: f('city').value, source: f('source').value, gmap: f('gmap').value, tags: tags, lat: lat, lng: lng, note: f('note').value, rating: rating, visited: f('visited').checked, added: base.added }, {});
+      const p = cleanPlace({ id: base.id, name: name, address: f('address').value, city: f('city').value, source: f('source').value, gmap: f('gmap').value, tags: tags, lat: lat, lng: lng, note: f('note').value, rating: rating, visited: f('visited').checked, images: images, added: base.added }, {});
       // 從別張地圖搬過來：舊的那張拿掉
       if (!isNew && target.id !== m.id) { m.map.places = m.map.places.filter(function (x) { return x.id !== base.id; }); save(m); }
       const i = target.map.places.findIndex(function (x) { return x.id === p.id; });
@@ -885,7 +961,7 @@
   }
 
   function teardown() {
-    closePop();
+    closePop(); closeGallery();
     if (S.picking) endPick();
     document.querySelectorAll('.fm-ov').forEach(function (o) { o.remove(); });
     if (leaf) { try { leaf.remove(); } catch (e) { /* */ } }

@@ -1614,6 +1614,7 @@
       },
       onChange: ttSave,
       onTags: editTags,
+      onUpload: function (files) { return uploadFiles(files).catch(function (e) { toast('上傳失敗：' + (e && e.message || e)); return []; }); },
       onDelete: function (n) {
         showConfirm({ title: '移到垃圾桶', message: '把圖層「' + n.title + '」和裡面的地點移到垃圾桶？可以從垃圾桶還原。', ok: '移到垃圾桶', danger: true }).then(function (yes) {
           if (!yes) return;
