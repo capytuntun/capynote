@@ -244,8 +244,21 @@
     if (!global.L) { empty.hidden = false; empty.textContent = '地圖程式庫（vendor/leaflet）沒有載入'; return; }
     if (leaf) { setTimeout(function () { if (leaf) leaf.invalidateSize(); }, 0); return; }
     leaf = L.map(box, { zoomControl: true, attributionControl: false, worldCopyJump: true });
-    const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, minZoom: 2, detectRetina: false });
+    // referrerPolicy：整個站是 Referrer-Policy: no-referrer，圖磚請求就一個 Referer 都沒帶，OSM 的圖磚伺服器把這種
+    // 瀏覽器請求當成「不守使用規範的 app」回 403（整張地圖都是 Access blocked 的格子——正式站上發生過）。
+    // 它的規範要的是「能辨認是哪個 app 的 Referer 或 UA」，所以只對圖磚的 <img> 單獨送站台的 origin（只有 origin，沒有路徑）。
+    const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, minZoom: 2, detectRetina: false, referrerPolicy: 'strict-origin' });
     tiles.addTo(leaf);
+    // 圖磚還是載不到（403／斷網）就在地圖上說一聲，不要只剩一片灰或一堆錯誤圖
+    let tileErrors = 0, tileOk = 0;
+    tiles.on('tileload', function () { tileOk++; });
+    tiles.on('tileerror', function () {
+      tileErrors++;
+      if (tileErrors >= 4 && !tileOk && !built.querySelector('.fm-tile-warn')) {
+        const w = el('div', 'fm-tile-warn', ic('alert-triangle') + ' 底圖載不進來（tile.openstreetmap.org 沒有回應或回 403）。店家的針跟清單不受影響；請檢查網路，或稍後再試。');
+        built.querySelector('.fm-map-wrap').appendChild(w);
+      }
+    });
     markerLayer = L.layerGroup().addTo(leaf);
     leaf.setView([25.04, 121.53], 12);   // 第一眼：台北；有店就會 fitBounds 蓋過去
     leaf.on('click', function (e) {

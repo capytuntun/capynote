@@ -6753,3 +6753,5 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
   .fm-side { display: none; }
   .tt-tb .fm-tb-t { display: none; }
 }
+.fm-tile-warn { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 1000; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); box-shadow: var(--shadow); font-size: var(--fs-sm); line-height: 1.4; }
+.fm-tile-warn .ic-svg { width: 16px; height: 16px; flex: 0 0 auto; color: #d9962a; }
