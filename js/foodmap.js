@@ -45,6 +45,21 @@
   const LAYER_ICONS = ['utensils', 'mountain', 'map-pin', 'coffee', 'camera', 'star', 'home', 'globe', 'award', 'book-open', 'film', 'shield', 'pin', 'image', 'users', 'archive'];
   const DEFAULT_LAYERS = [{ title: '美食地圖', kind: 'food' }, { title: '步道地圖', kind: 'trail' }];
   function kindOf(map) { return KINDS[map && map.kind] || KINDS.place; }
+  // 縣市：地址裡找得到就自動帶出（臺→台統一，篩選才不會「臺北市」「台北市」各算一邊）；台灣以外抓「○○県／都／府」
+  const TW_CITIES = ['台北市', '新北市', '桃園市', '台中市', '台南市', '高雄市', '基隆市', '新竹市', '嘉義市', '新竹縣', '苗栗縣', '彰化縣', '南投縣', '雲林縣', '嘉義縣', '屏東縣', '宜蘭縣', '花蓮縣', '台東縣', '澎湖縣', '金門縣', '連江縣'];
+  function normCity(s) { return str(s, 40).trim().replace(/^臺/, '台'); }
+  function cityFromAddress(addr) {
+    const a = String(addr || '').replace(/臺/g, '台');
+    for (let i = 0; i < TW_CITIES.length; i++) if (a.indexOf(TW_CITIES[i]) >= 0) return TW_CITIES[i];
+    const m = /(東京都|北海道|京都府|大阪府|[\u4e00-\u9fff]{1,3}県)/.exec(a);
+    return m ? m[1] : '';
+  }
+  function safeUrl(u) { u = str(u, 500).trim(); return /^https?:\/\/\S+$/i.test(u) ? u : ''; }
+  // 完整的 Google 地圖網址裡常有座標（@lat,lng、!3dlat!4dlng、q=lat,lng）；短網址 maps.app.goo.gl 沒有，只能靠地址定位
+  function coordsFromUrl(u) {
+    const m = /@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/.exec(u) || /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/.exec(u) || /[?&](?:q|ll|query)=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/.exec(u);
+    return m ? { lat: parseFloat(m[1]), lng: parseFloat(m[2]) } : null;
+  }
   // 標籤 chip 的顏色：名稱雜湊到這幾個，同一個標籤到哪裡都同一色
   const TAG_HUES = [14, 36, 92, 160, 200, 230, 270, 320];
   function tagHue(t) { let h = 0; const s = String(t).toLowerCase(); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return TAG_HUES[h % TAG_HUES.length]; }
@@ -69,9 +84,12 @@
     let id = typeof p.id === 'string' && p.id ? p.id.slice(0, 40) : uid('p');
     if (seen[id]) id = uid('p');
     seen[id] = 1;
-    const lat = coord(p.lat, 90), lng = coord(p.lng, 180);
+    let lat = coord(p.lat, 90), lng = coord(p.lng, 180);
+    const gmap = safeUrl(p.gmap);
+    if ((lat === null || lng === null) && gmap) { const c = coordsFromUrl(gmap); if (c) { lat = coord(c.lat, 90); lng = coord(c.lng, 180); } }
+    const address = str(p.address, 300).trim();
     const o = {
-      id: id, name: str(p.name, 200).trim(), address: str(p.address, 300).trim(), source: str(p.source, 500).trim(),
+      id: id, name: str(p.name, 200).trim(), address: address, city: normCity(p.city) || cityFromAddress(address), source: str(p.source, 500).trim(), gmap: gmap,
       tags: cleanTags(p.tags), lat: lat !== null && lng !== null ? lat : null, lng: lat !== null && lng !== null ? lng : null,
       note: str(p.note, 2000), rating: Math.max(0, Math.min(5, parseInt(p.rating, 10) || 0)), visited: !!p.visited,
       added: p.added > 0 ? Math.floor(p.added) : Date.now()
@@ -96,6 +114,7 @@
   function generate(d) { if (typeof d === 'string') d = { color: d }; return wrap(serialize(cleanMap(d || {}))); }
 
   function gmapsUrl(p) {
+    if (p.gmap) return p.gmap;
     if (p.lat !== null) return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat + ',' + p.lng);
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent((p.name + ' ' + p.address).trim());
   }
@@ -117,8 +136,8 @@
       (m.desc ? '<div class="fms-desc">' + esc(m.desc) + '</div>' : '') +
       (m.places.length ? '<ul class="fms-list">' + m.places.map(function (p) {
         return '<li' + (p.visited ? ' class="is-visited"' : '') + '><div class="fms-row"><span class="fms-pin" style="color:' + m.color + '">' + ic(m.icon) + '</span><b class="fms-name">' + esc(p.name) + '</b>' + (p.rating ? '<span class="fms-stars">' + stars(p.rating) + '</span>' : '') + (p.visited ? '<span class="fms-visited">去過</span>' : '') + tagsHTML(p.tags, 'fms-tag') + '</div>' +
-          (p.address ? '<div class="fms-addr">' + esc(p.address) + '</div>' : '') +
-          (p.source || p.note ? '<div class="fms-meta">' + sourceHTML(p.source, 'fms-src') + (p.note ? '<span class="fms-note">' + esc(p.note) + '</span>' : '') + '</div>' : '') + '</li>';
+          (p.address || p.city ? '<div class="fms-addr">' + (p.city ? '<span class="fms-city">' + esc(p.city) + '</span>' : '') + esc(p.address) + '</div>' : '') +
+          '<div class="fms-meta">' + sourceHTML(p.source, 'fms-src') + '<a class="fms-src" href="' + esc(gmapsUrl(p)) + '" target="_blank" rel="noopener noreferrer">' + ic('map-pin') + 'Google 地圖</a>' + (p.note ? '<span class="fms-note">' + esc(p.note) + '</span>' : '') + '</div></li>';
       }).join('') + '</ul>' : '<div class="fms-empty">還沒有' + esc(k.one) + '</div>') + '</div>';
   }
 
@@ -140,7 +159,7 @@
   }
   document.addEventListener('mousedown', function (e) { if ((popEl && !popEl.contains(e.target)) || (menuEl && !menuEl.contains(e.target))) { if (!e.target.closest('.tt-pop, .tt-menu')) closePop(); } }, true);
 
-  const S = { search: '', tags: [], visit: 'all', hidden: {}, selected: null, picking: null };
+  const S = { search: '', tags: [], visit: 'all', city: '', hidden: {}, selected: null, picking: null, locating: null };
   try { S.hidden = JSON.parse(lsGet('fmHidden', '{}')) || {}; } catch (e) { S.hidden = {}; }
   const cache = new Map();   // noteId → { content, map }
   let host = null, O = null, built = null;
@@ -172,10 +191,11 @@
     const p = x.p;
     if (S.visit === 'visited' && !p.visited) return false;
     if (S.visit === 'todo' && p.visited) return false;
+    if (S.city && normCity(p.city) !== S.city) return false;
     if (S.tags.length && !S.tags.every(function (t) { return p.tags.some(function (u) { return u.toLowerCase() === t.toLowerCase(); }); })) return false;
     const q = S.search.trim().toLowerCase();
     if (q) {
-      const hay = [p.name, p.address, p.source, p.note, p.tags.join(' '), x.m.name].join('\n').toLowerCase();
+      const hay = [p.name, p.address, p.city, p.source, p.note, p.tags.join(' '), x.m.name].join('\n').toLowerCase();
       if (q.split(/\s+/).some(function (w) { return hay.indexOf(w) < 0; })) return false;
     }
     return true;
@@ -226,6 +246,13 @@
     if (!maps.length) h += '<div class="tt-side-empty">還沒有圖層。</div>';
     h += '</div>' + (O.onCreate ? '<button class="tt-side-add" type="button" data-e="newmap">' + ic('plus') + ' 新增圖層</button>' : '');
     h += '<div class="tt-side-t">去過沒 </div><div class="fm-visit">' + [['all', '全部', all.length], ['todo', '還沒去', all.length - visited], ['visited', '去過', visited]].map(function (v) { return '<button type="button" class="fm-visit-b' + (S.visit === v[0] ? ' on' : '') + '" data-visit="' + v[0] + '">' + v[1] + '<small>' + v[2] + '</small></button>'; }).join('') + '</div>';
+    const cities = {};
+    all.forEach(function (x) { const c = normCity(x.p.city); if (c) cities[c] = (cities[c] || 0) + 1; });
+    const cityList = Object.keys(cities).sort(function (a, b) { return cities[b] - cities[a] || a.localeCompare(b, 'zh-Hant'); });
+    if (cityList.length || S.city) {
+      h += '<div class="tt-side-t">縣市 <small>' + cityList.length + '</small></div><div class="fm-visit fm-cities"><button type="button" class="fm-visit-b' + (!S.city ? ' on' : '') + '" data-city="">全部<small>' + all.length + '</small></button>' +
+        cityList.map(function (c) { return '<button type="button" class="fm-visit-b' + (S.city === c ? ' on' : '') + '" data-city="' + esc(c) + '">' + esc(c) + '<small>' + cities[c] + '</small></button>'; }).join('') + '</div>';
+    }
     h += '<div class="tt-side-t">標籤 <small>' + tags.length + '</small>' + (S.tags.length ? '<button type="button" class="fm-side-clear" data-e="cleartags">清除</button>' : '') + '</div><div class="fm-tagcloud">';
     if (!tags.length) h += '<div class="tt-side-empty">新增地點時填標籤，這裡就會出現，點了可以篩選。</div>';
     tags.forEach(function (t) { const on = S.tags.some(function (x) { return x.toLowerCase() === t.name.toLowerCase(); }); h += '<button type="button" class="fm-tag fm-tag-b' + (on ? ' on' : '') + '" ' + tagStyle(t.name) + ' data-tag="' + esc(t.name) + '">' + esc(t.name) + '<small>' + t.n + '</small></button>'; });
@@ -240,11 +267,15 @@
     head.innerHTML = '<label class="tt-search fm-search">' + ic('search') + '<input type="search" placeholder="搜尋名稱、地址、標籤、來源…" value="' + esc(S.search) + '" data-f="search" aria-label="搜尋地點"></label>' +
       (S.tags.length ? '<div class="fm-active-tags">' + S.tags.map(function (t) { return '<span class="fm-tag" ' + tagStyle(t) + '>' + esc(t) + '<button type="button" data-untag="' + esc(t) + '" title="取消這個標籤的篩選">' + ic('x') + '</button></span>'; }).join('') + '</div>' : '') +
       '<span class="fm-count">' + countText() + '</span><span class="tt-sp"></span>' +
-      '<button class="tt-tb" type="button" data-e="fit" title="把所有看得到的店都放進畫面">' + ic('maximize') + '<span class="fm-tb-t">全部顯示</span></button>' +
+      (missingCount() && !S.locating ? '<button class="tt-tb" type="button" data-e="locate" title="用地址把還沒有座標的地點定位到地圖上">' + ic('map-pin') + '<span class="fm-tb-t">定位 ' + missingCount() + ' 個未定位</span></button>' : '') +
+      '<button class="tt-tb" type="button" data-e="io" title="匯入 JSON、匯出">' + ic('upload') + '<span class="fm-tb-t">匯入／匯出</span></button>' +
+      '<button class="tt-tb" type="button" data-e="fit" title="把所有看得到的地點都放進畫面">' + ic('maximize') + '<span class="fm-tb-t">全部顯示</span></button>' +
       (canAdd ? '<button class="tt-btn tt-btn-primary fm-add" type="button" data-e="add">' + ic('plus') + ' ' + addLabel() + '</button>' : '');
   }
   // 看得見的圖層都是同一種類型就用那種的詞（新增店家／新增步道），不然就「新增地點」
   function oneKind() { const ks = {}; visibleMaps().forEach(function (m) { ks[m.map.kind] = 1; }); const a = Object.keys(ks); return a.length === 1 ? KINDS[a[0]] : null; }
+  function missingOf(maps) { const out = []; (maps || visibleMaps()).forEach(function (m) { if (m.ro) return; m.map.places.forEach(function (p) { if (p.lat === null && (p.address || p.name)) out.push({ p: p, m: m }); }); }); return out; }
+  function missingCount() { return missingOf().length; }
   function addLabel() { const k = oneKind(); return '新增' + (k ? k.one : '地點'); }
   function countText() { const n = filtered().length, total = allPlaces().length, k = oneKind(); const u = ' 個' + (k ? k.one : '地點'); return n === total ? total + u : n + ' / ' + total + u; }
   function placeRow(x) {
@@ -252,8 +283,8 @@
     return '<div class="fm-row' + (S.selected === p.id ? ' is-sel' : '') + (p.visited ? ' is-visited' : '') + (p.lat === null ? ' is-nowhere' : '') + '" data-id="' + esc(p.id) + '" tabindex="0">' +
       '<span class="fm-row-pin" style="--c:' + m.map.color + '" title="' + esc(m.name) + '">' + ic(m.map.icon) + '</span>' +
       '<div class="fm-row-main"><div class="fm-row-top"><b class="fm-row-name">' + esc(p.name) + '</b>' + (p.rating ? '<span class="fm-stars">' + stars(p.rating) + '</span>' : '') + (p.visited ? '<span class="fm-badge fm-badge-v">去過</span>' : '') + (p.lat === null ? '<span class="fm-badge fm-badge-n">未定位</span>' : '') + '</div>' +
-      (p.address ? '<div class="fm-row-addr">' + esc(p.address) + '</div>' : '') +
-      (p.tags.length || p.source ? '<div class="fm-row-meta">' + tagsHTML(p.tags) + sourceHTML(p.source) + '</div>' : '') + '</div>' +
+      (p.address || p.city ? '<div class="fm-row-addr">' + (p.city ? '<span class="fm-row-city">' + esc(p.city) + '</span>' : '') + esc(p.address) + '</div>' : '') +
+      '<div class="fm-row-meta">' + tagsHTML(p.tags) + sourceHTML(p.source) + '<a class="fm-src fm-gmap" href="' + esc(gmapsUrl(p)) + '" target="_blank" rel="noopener noreferrer" title="在 Google 地圖開啟">' + ic('map-pin') + 'Google 地圖</a></div></div>' +
       (m.ro ? '' : '<div class="fm-row-tools"><button class="tt-tb fm-row-tb" type="button" data-edit="' + esc(p.id) + '" title="編輯">' + ic('pencil') + '</button><button class="tt-tb fm-row-tb" type="button" data-pmore="' + esc(p.id) + '" title="更多">' + ic('more-horizontal') + '</button></div>') + '</div>';
   }
   function paintList() {
@@ -397,10 +428,14 @@
         if (a === 'newmap') return layerDialog(null);
         if (a === 'add') return openEditor(null, null);
         if (a === 'fit') return fitAll();
+        if (a === 'io') { const r = b.getBoundingClientRect(); return ioMenu(r.left, r.bottom + 4); }
+        if (a === 'locate') return locateMissing();
+        if (a === 'cancellocate') { if (S.locating) S.locating.cancel = true; return; }
         if (a === 'cleartags') { S.tags = []; paint(); paintMarkers(); return; }
       }
       if ((b = t.closest('[data-untag]'))) { const u = b.getAttribute('data-untag'); S.tags = S.tags.filter(function (x) { return x !== u; }); paint(); paintMarkers(); return; }
       if ((b = t.closest('[data-visit]'))) { S.visit = b.getAttribute('data-visit'); paint(); paintMarkers(); return; }
+      if ((b = t.closest('[data-city]'))) { S.city = b.getAttribute('data-city'); paint(); paintMarkers(); return; }
       if ((b = t.closest('.fm-side [data-tag], .fm-list [data-tag]'))) {
         const tg = b.getAttribute('data-tag');
         const i = S.tags.findIndex(function (x) { return x.toLowerCase() === tg.toLowerCase(); });
@@ -475,13 +510,191 @@
     });
   }
   function exportCSV(m) {
-    const cols = ['名稱', '地址', '資料來源', '標籤', '緯度', '經度', '評分', '去過', '備註'];
+    const cols = ['名稱', '縣市', '地址', '資料來源', 'Google 地圖', '標籤', '緯度', '經度', '評分', '去過', '備註'];
     const q = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    const lines = [cols.join(',')].concat(m.map.places.map(function (p) { return [p.name, p.address, p.source, p.tags.join(' '), p.lat === null ? '' : p.lat, p.lng === null ? '' : p.lng, p.rating || '', p.visited ? '是' : '', p.note].map(q).join(','); }));
+    const lines = [cols.join(',')].concat(m.map.places.map(function (p) { return [p.name, p.city, p.address, p.source, p.gmap, p.tags.join(' '), p.lat === null ? '' : p.lat, p.lng === null ? '' : p.lng, p.rating || '', p.visited ? '是' : '', p.note].map(q).join(','); }));
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (m.name || '圖層') + '.csv'; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
   }
+  // ---------------- 匯入 JSON／匯出／批次定位 ----------------
+  // 匯入的 JSON 欄位名稱寬鬆對應（使用者貼的是 name／link／type／city／Address／google_map），大小寫不分；
+  // 一個陣列、{ places: [...] }（我們自己匯出的）、或物件裡第一個陣列都收；單一物件也算一筆。
+  const ALIAS = {
+    name: ['name', '店名', '名稱', 'title', '店家', 'shop', '名字'], address: ['address', '地址', 'addr', 'location', '位置'],
+    source: ['source', 'link', 'url', '來源', '資料來源', '網址', '連結'], tags: ['tags', 'tag', 'type', 'category', '類型', '標籤', '分類', '種類'],
+    city: ['city', '縣市', '城市', '區域', 'area', '地區'], gmap: ['google_map', 'gmap', 'googlemap', 'google_maps', 'google', 'map', 'maps', '地圖', 'google地圖'],
+    lat: ['lat', 'latitude', '緯度'], lng: ['lng', 'lon', 'long', 'longitude', '經度'], note: ['note', 'notes', '備註', 'memo', 'desc', 'description', '說明'],
+    rating: ['rating', '評分', 'stars', 'score'], visited: ['visited', '去過', 'done']
+  };
+  function pickField(row, keys) {
+    const lower = {}; Object.keys(row).forEach(function (k) { lower[k.toLowerCase().replace(/[\s_-]/g, '')] = row[k]; });
+    for (let i = 0; i < keys.length; i++) { const v = lower[keys[i].toLowerCase().replace(/[\s_-]/g, '')]; if (v !== undefined && v !== null && v !== '') return v; }
+    return undefined;
+  }
+  function rowsOf(data) {
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === 'object') {
+      if (Array.isArray(data.places)) return data.places;
+      const k = Object.keys(data).find(function (x) { return Array.isArray(data[x]); });
+      if (k) return data[k];
+      return [data];
+    }
+    return [];
+  }
+  // 回 { places: [cleanPlace…], bad: 幾筆沒有名稱 }；JSON 壞掉會 throw
+  function parseImport(text) {
+    let data;
+    try { data = JSON.parse(String(text || '').replace(/^\uFEFF/, '').trim().replace(/,\s*([\]}])/g, '$1')); } catch (e) { throw new Error('JSON 格式不對：' + (e && e.message || e)); }
+    const rows = rowsOf(data), seen = {}, out = [];
+    let bad = 0;
+    rows.forEach(function (r) {
+      if (!r || typeof r !== 'object') { bad++; return; }
+      const tagsV = pickField(r, ALIAS.tags);
+      const tags = Array.isArray(tagsV) ? tagsV : typeof tagsV === 'string' ? tagsV.split(/[,，、/|;；\s]+/) : [];
+      const name = pickField(r, ALIAS.name);
+      if (!name) { bad++; return; }
+      const visited = pickField(r, ALIAS.visited);
+      out.push(cleanPlace({
+        name: String(name), address: String(pickField(r, ALIAS.address) || ''), city: String(pickField(r, ALIAS.city) || ''),
+        source: String(pickField(r, ALIAS.source) || ''), gmap: String(pickField(r, ALIAS.gmap) || ''), tags: tags,
+        lat: pickField(r, ALIAS.lat), lng: pickField(r, ALIAS.lng), note: String(pickField(r, ALIAS.note) || ''),
+        rating: pickField(r, ALIAS.rating), visited: visited === true || visited === 1 || /^(1|true|yes|是|y|去過)$/i.test(String(visited || ''))
+      }, seen));
+    });
+    return { places: out, bad: bad };
+  }
+  function sampleJSON() {
+    return JSON.stringify([
+      { name: '開餵食堂', link: 'https://www.facebook.com/reel/1153654183472941', type: '小吃', city: '台北市', Address: '115臺北市南港區中南里中南街154號', google_map: 'https://maps.app.goo.gl/8Dn1gWXJ1L17TkwUA' },
+      { name: '象山步道', type: '步道, 夜景', city: '台北市', address: '台北市信義區信義路五段150巷', lat: 25.0276, lng: 121.5712, note: '約 1 小時來回', visited: true }
+    ], null, 2);
+  }
+  function download(name, text, type) {
+    const blob = new Blob([text], { type: type || 'application/json;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  }
+  // 匯出看得見的圖層：跟匯入同一種欄位（可以再匯回來），多一個 layer 說是哪一層
+  function exportJSON(maps) {
+    const rows = [];
+    (maps || visibleMaps()).forEach(function (m) { m.map.places.forEach(function (p) { rows.push({ layer: m.name, name: p.name, city: p.city, address: p.address, source: p.source, google_map: p.gmap, tags: p.tags, lat: p.lat, lng: p.lng, rating: p.rating || undefined, visited: p.visited || undefined, note: p.note || undefined }); }); });
+    download((maps && maps.length === 1 ? maps[0].name : '圖資中心') + '.json', JSON.stringify(rows, null, 2));
+  }
+  function ioMenu(x, y) {
+    const canAdd = mapsOf().some(function (m) { return !m.ro; });
+    menuAt(x, y, [
+      ['import', '匯入 JSON…', !canAdd], ['sample', '下載 JSON 範例'], null,
+      ['export', '匯出看得見的圖層（JSON）', !visibleMaps().length], ['csv', '匯出看得見的圖層（CSV）', !visibleMaps().length], null,
+      ['locate', '定位還沒有座標的地點（' + missingCount() + '）', !missingCount() || !!S.locating]
+    ], function (a) {
+      if (a === 'import') importDialog();
+      else if (a === 'sample') download('圖資中心-範例.json', sampleJSON());
+      else if (a === 'export') exportJSON();
+      else if (a === 'csv') visibleMaps().forEach(exportCSV);
+      else if (a === 'locate') locateMissing();
+    });
+  }
+  function importDialog(target) {
+    closePop();
+    const maps = mapsOf().filter(function (m) { return !m.ro; });
+    if (!maps.length) { toast('先新增一個圖層'); return; }
+    target = target || mapById(S.lastMap) || maps[0];
+    const ov = el('div', 'modal-overlay tt-dialog-overlay fm-ov');
+    ov.innerHTML = '<div class="modal tt-dialog fm-dialog fm-import" role="dialog" aria-modal="true"><div class="modal-title">匯入 JSON</div><div class="tt-dialog-body">' +
+      '<div class="tt-ed-row"><span class="tt-ed-l">圖層</span><select class="tt-input" data-f="map">' + maps.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === target.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select><label class="tt-btn fm-file-btn">' + ic('upload') + ' 選檔案<input type="file" accept=".json,application/json,text/plain" data-f="file" hidden></label></div>' +
+      '<div class="tt-ed-row tt-ed-notes"><span class="tt-ed-l"></span><textarea class="tt-input fm-import-text" rows="9" spellcheck="false" placeholder="把 JSON 貼在這裡，或選檔案。每一筆像這樣：\n{ &quot;name&quot;: &quot;開餵食堂&quot;, &quot;Address&quot;: &quot;台北市南港區中南街154號&quot;, &quot;type&quot;: &quot;小吃&quot;, &quot;city&quot;: &quot;台北市&quot;, &quot;link&quot;: &quot;https://…&quot;, &quot;google_map&quot;: &quot;https://maps.app.goo.gl/…&quot; }\n欄位名稱不分大小寫；type 會變成標籤，link 是資料來源，google_map 是 Google 地圖連結。" data-f="text"></textarea></div>' +
+      '<div class="tt-ed-row"><span class="tt-ed-l"></span><div class="fm-io-status" data-f="status">還沒有內容</div></div>' +
+      '<div class="tt-ed-row"><span class="tt-ed-l"></span><label class="tt-ed-check"><input type="checkbox" data-f="locate" checked> 匯入後自動用地址定位沒有座標的地點（每筆約 1 秒）</label></div>' +
+      '</div><div class="modal-actions"><button class="btn" type="button" data-e="sample">下載範例</button><span class="tt-sp"></span><button class="btn" type="button" data-e="close">取消</button><button class="btn btn-primary" type="button" data-e="ok" disabled>匯入</button></div></div>';
+    document.body.appendChild(ov);
+    const f = function (n) { return ov.querySelector('[data-f="' + n + '"]'); };
+    let parsed = null;
+    const check = function () {
+      const t = f('text').value.trim();
+      if (!t) { parsed = null; f('status').textContent = '還沒有內容'; f('status').className = 'fm-io-status'; ov.querySelector('[data-e="ok"]').disabled = true; return; }
+      try {
+        parsed = parseImport(t);
+        const located = parsed.places.filter(function (p) { return p.lat !== null; }).length;
+        f('status').textContent = '讀到 ' + parsed.places.length + ' 筆' + (located ? '，' + located + ' 筆已有座標' : '') + (parsed.places.length - located ? '，' + (parsed.places.length - located) + ' 筆要用地址定位' : '') + (parsed.bad ? '；' + parsed.bad + ' 筆沒有名稱會略過' : '');
+        f('status').className = 'fm-io-status is-ok';
+        ov.querySelector('[data-e="ok"]').disabled = !parsed.places.length;
+      } catch (e) { parsed = null; f('status').textContent = e.message; f('status').className = 'fm-io-status is-err'; ov.querySelector('[data-e="ok"]').disabled = true; }
+    };
+    f('text').addEventListener('input', check);
+    f('file').addEventListener('change', function () {
+      const file = f('file').files[0]; if (!file) return;
+      const rd = new FileReader(); rd.onload = function () { f('text').value = String(rd.result || ''); check(); }; rd.readAsText(file, 'utf-8');
+    });
+    const close = function () { ov.remove(); };
+    ov.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+    ov.addEventListener('click', function (e) {
+      const b = e.target.closest('[data-e]');
+      if (!b) { if (e.target === ov) close(); return; }
+      const a = b.getAttribute('data-e');
+      if (a === 'close') close();
+      else if (a === 'sample') download('圖資中心-範例.json', sampleJSON());
+      else if (a === 'ok') {
+        if (!parsed || !parsed.places.length) return;
+        const m = mapById(f('map').value) || target;
+        const have = {}; m.map.places.forEach(function (p) { have[(p.name + '|' + p.address).toLowerCase()] = 1; });
+        const ids = {}; m.map.places.forEach(function (p) { ids[p.id] = 1; });
+        let added = 0, dup = 0;
+        parsed.places.forEach(function (p) {
+          const k = (p.name + '|' + p.address).toLowerCase();
+          if (have[k]) { dup++; return; }
+          have[k] = 1;
+          if (ids[p.id]) p.id = uid('p');
+          m.map.places.push(p); added++;
+        });
+        const wantLocate = f('locate').checked;
+        close();
+        if (!added) { toast('沒有新的地點（' + dup + ' 筆已經在圖層裡）'); return; }
+        save(m); S.lastMap = m.id;
+        if (S.hidden[m.id]) { delete S.hidden[m.id]; lsSet('fmHidden', JSON.stringify(S.hidden)); }
+        S.search = ''; S.tags = []; S.visit = 'all'; S.city = '';
+        fitted = false; paint(); paintMarkers();
+        toast('匯入 ' + added + ' 筆到「' + m.name + '」' + (dup ? '，略過 ' + dup + ' 筆重複' : ''));
+        if (wantLocate) locateMissing([m]);
+      }
+    });
+    setTimeout(function () { f('text').focus(); }, 0);
+  }
+  // 批次定位：一筆一筆問 /api/geocode（伺服器那邊每秒最多一次），邊做邊存，可以取消；離開頁面也會停
+  function locateMissing(maps) {
+    if (S.locating) { toast('已經在定位中'); return; }
+    if (!global.Store || !Store.geocode) return;
+    const items = missingOf(maps);
+    if (!items.length) { toast('沒有需要定位的地點'); return; }
+    const job = { cancel: false, done: 0, ok: 0, miss: 0, total: items.length };
+    S.locating = job;
+    const wrap = built.querySelector('.fm-map-wrap');
+    const banner = el('div', 'fm-pick-banner fm-locate-banner');
+    const say = function () { banner.innerHTML = ic('map-pin') + ' 定位中 ' + job.done + ' / ' + job.total + (job.miss ? '（' + job.miss + ' 筆找不到）' : '') + '　<button type="button" class="tt-btn" data-e="cancellocate">停止</button>'; };
+    say(); wrap.appendChild(banner); paintHead();
+    const touched = {};
+    const finish = function () {
+      S.locating = null; banner.remove();
+      Object.keys(touched).forEach(function (id) { const m = mapById(id); if (m) save(m); });
+      if (built) { fitted = false; paint(); paintMarkers(); }
+      toast('定位完成：' + job.ok + ' 筆成功' + (job.miss ? '、' + job.miss + ' 筆找不到（可以編輯那筆在地圖上點位置）' : '') + (job.cancel ? '（已停止）' : ''));
+    };
+    const step = function (i) {
+      if (job.cancel || i >= items.length || !built || !document.contains(built)) return finish();
+      const it = items[i];
+      Store.geocode(it.p.address || it.p.name).then(function (r) {
+        job.done++;
+        if (!r.error && r.results && r.results.length && it.p.lat === null) {
+          it.p.lat = r.results[0].lat; it.p.lng = r.results[0].lng; job.ok++; touched[it.m.id] = 1;
+          if (job.ok % 5 === 0) { save(it.m); delete touched[it.m.id]; if (built) { paintList(); paintMarkers(); } }
+        } else job.miss++;
+        say();
+        step(i + 1);
+      });
+    };
+    step(0);
+  }
+
   // 新增／編輯圖層：名稱、類型（決定用詞）、圖示、顏色、說明。名稱改了走 onRename（筆記標題），其他寫進圍欄。
   function layerDialog(m) {
     closePop();
@@ -554,7 +767,10 @@
       '<div class="tt-ed-row"><span class="tt-ed-l">' + ic('map-pin') + '</span><input class="tt-input" type="text" maxlength="300" placeholder="地址（填了按「查地址」就會定位）" data-f="address" value="' + esc(base.address) + '"><button class="tt-btn" type="button" data-e="geocode">查地址</button></div>' +
       '<div class="fm-geo-results" hidden></div>' +
       '<div class="tt-ed-row fm-coord-row"><span class="tt-ed-l"></span><span class="fm-coord" data-f="coord"></span><span class="tt-sp"></span><button class="tt-btn" type="button" data-e="pick">在地圖上點位置</button><button class="tt-btn" type="button" data-e="clearpos" title="拿掉座標">清除</button></div>' +
+      '<div class="tt-ed-row"><span class="tt-ed-l">縣市</span><input class="tt-input fm-city-in" type="text" maxlength="40" placeholder="縣市（填地址會自動帶出）" list="fm-city-list" data-f="city" value="' + esc(base.city || '') + '"></div>' +
+      '<datalist id="fm-city-list">' + TW_CITIES.map(function (c) { return '<option value="' + c + '">'; }).join('') + '</datalist>' +
       '<div class="tt-ed-row"><span class="tt-ed-l">' + ic('book-open') + '</span><input class="tt-input" type="text" maxlength="500" placeholder="資料來源（例如：朋友推薦、IG 帳號、文章網址）" data-f="source" value="' + esc(base.source) + '"></div>' +
+      '<div class="tt-ed-row"><span class="tt-ed-l">' + ic('globe') + '</span><input class="tt-input" type="url" maxlength="500" placeholder="Google 地圖連結（選填；完整網址裡的座標會自動帶出）" data-f="gmap" value="' + esc(base.gmap || '') + '"></div>' +
       '<div class="tt-ed-row fm-tags-row"><span class="tt-ed-l">' + ic('tag') + '</span><div class="fm-chips" data-f="tags"><input type="text" class="fm-chip-in" placeholder="標籤，Enter 或逗號分開" list="fm-tag-list" maxlength="40"></div></div>' +
       '<datalist id="fm-tag-list">' + allTags.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
       (allTags.length ? '<div class="tt-ed-row fm-tag-sugg"><span class="tt-ed-l"></span><div>' + allTags.slice(0, 16).map(function (t) { return '<button type="button" class="fm-tag fm-tag-b" ' + tagStyle(t) + ' data-sugg="' + esc(t) + '">' + esc(t) + '</button>'; }).join('') + '</div></div>' : '') +
@@ -596,6 +812,7 @@
         if (!h) return;
         lat = h.lat; lng = h.lng; approx = !!results._approx;
         if (!f('address').value.trim() && (h.short || h.displayName)) f('address').value = h.short || h.displayName;
+        if (!f('city').value.trim()) f('city').value = cityFromAddress(f('address').value || h.displayName);
         if (!f('name').value.trim() && h.name) f('name').value = h.name;
         results.hidden = true; paintCoord(); return;
       }
@@ -635,6 +852,8 @@
     chipIn.addEventListener('input', function () { if (/[,，]/.test(chipIn.value)) { chipIn.value.split(/[,，]/).forEach(addTag); chipIn.value = ''; } });
     chipIn.addEventListener('blur', function () { if (chipIn.value.trim()) { addTag(chipIn.value); chipIn.value = ''; } });
     f('address').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); geocode(); } });
+    f('address').addEventListener('input', function () { if (!f('city').value.trim()) { const c = cityFromAddress(f('address').value); if (c) f('city').value = c; } });
+    f('gmap').addEventListener('change', function () { if (lat === null) { const c = coordsFromUrl(f('gmap').value); if (c) { lat = c.lat; lng = c.lng; approx = false; paintCoord(); } } });
     if (f('map')) f('map').addEventListener('change', function () { const t = mapById(f('map').value); if (!t) return; f('name').placeholder = t.kind.name; const k = ov.querySelector('.fm-ed-kind'); k.style.color = t.map.color; k.title = t.name; k.innerHTML = ic(t.map.icon); });
     ov.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') { e.stopPropagation(); if (!results.hidden) { results.hidden = true; return; } close(); }
@@ -646,7 +865,7 @@
       if (!name) { f('name').focus(); toast(w.name + '要填'); return; }
       if (chipIn.value.trim()) { addTag(chipIn.value); chipIn.value = ''; }
       const target = f('map') ? mapById(f('map').value) || m : m;
-      const p = cleanPlace({ id: base.id, name: name, address: f('address').value, source: f('source').value, tags: tags, lat: lat, lng: lng, note: f('note').value, rating: rating, visited: f('visited').checked, added: base.added }, {});
+      const p = cleanPlace({ id: base.id, name: name, address: f('address').value, city: f('city').value, source: f('source').value, gmap: f('gmap').value, tags: tags, lat: lat, lng: lng, note: f('note').value, rating: rating, visited: f('visited').checked, added: base.added }, {});
       // 從別張地圖搬過來：舊的那張拿掉
       if (!isNew && target.id !== m.id) { m.map.places = m.map.places.filter(function (x) { return x.id !== base.id; }); save(m); }
       const i = target.map.places.findIndex(function (x) { return x.id === p.id; });
@@ -678,5 +897,5 @@
     fitted = false;
   }
 
-  global.FoodMap = { isNote: isNote, generate: generate, KINDS: KINDS, DEFAULT_LAYERS: DEFAULT_LAYERS, parse: parse, serialize: serialize, payloadOf: payloadOf, wrap: wrap, blockHTML: blockHTML, render: render, teardown: teardown, closePop: closePop, reveal: reveal, state: S, COLORS: COLORS };
+  global.FoodMap = { isNote: isNote, generate: generate, parseImport: parseImport, cityFromAddress: cityFromAddress, KINDS: KINDS, DEFAULT_LAYERS: DEFAULT_LAYERS, parse: parse, serialize: serialize, payloadOf: payloadOf, wrap: wrap, blockHTML: blockHTML, render: render, teardown: teardown, closePop: closePop, reveal: reveal, state: S, COLORS: COLORS };
 })(window);
