@@ -242,29 +242,36 @@
   function paint() {
     paintSide(); paintHead(); paintList();
   }
+  // 左欄：圖層（彩色圖示方塊＝那一層的針，點方塊切換顯示）、去過沒（一列三段）、縣市（膠囊，單選）、標籤（膠囊，多選 AND）
   function paintSide() {
     const side = built.querySelector('.fm-side');
     const maps = mapsOf(), tags = tagCounts(), all = allPlaces();
     const visited = all.filter(function (x) { return x.p.visited; }).length;
-    let h = '<div class="tt-side-t">圖層 <small>' + maps.length + '</small></div><div class="fm-maps">';
+    let h = '<section class="fm-sec fm-sec-layers"><div class="fm-sec-h"><span>圖層</span><small>' + maps.length + '</small>' + (O.onCreate ? '<button type="button" class="fm-sec-btn" data-e="newmap" title="新增圖層">' + ic('plus') + '</button>' : '') + '</div><div class="fm-layers">';
     maps.forEach(function (m) {
-      h += '<div class="tt-cal fm-mapline' + (S.hidden[m.id] ? ' is-hidden' : '') + '" data-map="' + esc(m.id) + '" title="' + esc(m.kind.label + (m.map.desc ? '：' + m.map.desc : '')) + '"><label class="tt-cal-chk" title="顯示／隱藏"><input type="checkbox" data-vis="' + esc(m.id) + '"' + (S.hidden[m.id] ? '' : ' checked') + '><i style="background:' + m.map.color + '"></i></label><span class="fm-layer-ic" style="color:' + m.map.color + '">' + ic(m.map.icon) + '</span><span class="tt-cal-name">' + esc(m.name) + '</span><small class="fm-mapn">' + m.map.places.length + '</small>' + (m.ro ? '<span class="tt-cal-ro" title="別人分享給我的，只能看">' + ic('lock') + '</span>' : '') + '<button class="tt-cal-more" type="button" data-more="' + esc(m.id) + '" title="更多">' + ic('more-horizontal') + '</button></div>';
+      const hid = !!S.hidden[m.id];
+      h += '<div class="fm-mapline fm-layer' + (hid ? ' is-hidden' : '') + '" data-map="' + esc(m.id) + '" title="' + esc(m.kind.label + (m.map.desc ? '：' + m.map.desc : '')) + '">' +
+        '<label class="fm-layer-vis" title="' + (hid ? '顯示這一層' : '隱藏這一層') + '"><input type="checkbox" data-vis="' + esc(m.id) + '"' + (hid ? '' : ' checked') + '><span class="fm-layer-badge" style="--c:' + m.map.color + '">' + ic(m.map.icon) + '</span></label>' +
+        '<span class="fm-layer-name">' + esc(m.name) + '</span>' +
+        (m.ro ? '<span class="fm-layer-ro" title="別人分享給我的，只能看">' + ic('lock') + '</span>' : '') +
+        '<span class="fm-layer-n">' + m.map.places.length + '</span>' +
+        '<button class="fm-layer-more" type="button" data-more="' + esc(m.id) + '" title="更多">' + ic('more-horizontal') + '</button></div>';
     });
-    if (!maps.length) h += '<div class="tt-side-empty">還沒有圖層。</div>';
-    h += '</div>' + (O.onCreate ? '<button class="tt-side-add" type="button" data-e="newmap">' + ic('plus') + ' 新增圖層</button>' : '');
-    h += '<div class="tt-side-t">去過沒 </div><div class="fm-visit">' + [['all', '全部', all.length], ['todo', '還沒去', all.length - visited], ['visited', '去過', visited]].map(function (v) { return '<button type="button" class="fm-visit-b' + (S.visit === v[0] ? ' on' : '') + '" data-visit="' + v[0] + '">' + v[1] + '<small>' + v[2] + '</small></button>'; }).join('') + '</div>';
+    if (!maps.length) h += '<div class="fm-sec-empty">還沒有圖層。' + (O.onCreate ? '<button type="button" class="fm-link-btn" data-e="newmap">新增一個</button>' : '') + '</div>';
+    h += '</div></section>';
+    h += '<section class="fm-sec"><div class="fm-sec-h"><span>去過沒</span></div><div class="fm-seg">' + [['all', '全部', all.length], ['todo', '還沒去', all.length - visited], ['visited', '去過', visited]].map(function (v) { return '<button type="button" class="fm-seg-b' + (S.visit === v[0] ? ' on' : '') + '" data-visit="' + v[0] + '">' + v[1] + '<small>' + v[2] + '</small></button>'; }).join('') + '</div></section>';
     const cities = {};
     all.forEach(function (x) { const c = normCity(x.p.city); if (c) cities[c] = (cities[c] || 0) + 1; });
     const cityList = Object.keys(cities).sort(function (a, b) { return cities[b] - cities[a] || a.localeCompare(b, 'zh-Hant'); });
     if (cityList.length || S.city) {
-      h += '<div class="tt-side-t">縣市 <small>' + cityList.length + '</small></div><div class="fm-visit fm-cities"><button type="button" class="fm-visit-b' + (!S.city ? ' on' : '') + '" data-city="">全部<small>' + all.length + '</small></button>' +
-        cityList.map(function (c) { return '<button type="button" class="fm-visit-b' + (S.city === c ? ' on' : '') + '" data-city="' + esc(c) + '">' + esc(c) + '<small>' + cities[c] + '</small></button>'; }).join('') + '</div>';
+      h += '<section class="fm-sec"><div class="fm-sec-h"><span>縣市</span><small>' + cityList.length + '</small>' + (S.city ? '<button type="button" class="fm-sec-btn fm-sec-txt" data-city="">清除</button>' : '') + '</div><div class="fm-chips-wrap fm-cities">' +
+        cityList.map(function (c) { return '<button type="button" class="fm-chip-b' + (S.city === c ? ' on' : '') + '" data-city="' + esc(c) + '">' + esc(c) + '<small>' + cities[c] + '</small></button>'; }).join('') + '</div></section>';
     }
-    h += '<div class="tt-side-t">標籤 <small>' + tags.length + '</small>' + (S.tags.length ? '<button type="button" class="fm-side-clear" data-e="cleartags">清除</button>' : '') + '</div><div class="fm-tagcloud">';
-    if (!tags.length) h += '<div class="tt-side-empty">新增地點時填標籤，這裡就會出現，點了可以篩選。</div>';
+    h += '<section class="fm-sec"><div class="fm-sec-h"><span>標籤</span><small>' + tags.length + '</small>' + (S.tags.length ? '<button type="button" class="fm-sec-btn fm-sec-txt" data-e="cleartags">清除</button>' : '') + '</div><div class="fm-chips-wrap fm-tagcloud">';
+    if (!tags.length) h += '<div class="fm-sec-empty">新增地點時填標籤，這裡就會出現，點了可以篩選。</div>';
     tags.forEach(function (t) { const on = S.tags.some(function (x) { return x.toLowerCase() === t.name.toLowerCase(); }); h += '<button type="button" class="fm-tag fm-tag-b' + (on ? ' on' : '') + '" ' + tagStyle(t.name) + ' data-tag="' + esc(t.name) + '">' + esc(t.name) + '<small>' + t.n + '</small></button>'; });
-    h += '</div>';
-    h += '<div class="tt-side-foot fm-foot">底圖 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> 貢獻者</div>';
+    h += '</div></section>';
+    h += '<div class="fm-foot">底圖 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> 貢獻者</div>';
     side.innerHTML = h;
   }
   function paintHead() {
