@@ -447,7 +447,14 @@
     const wrapEl = host.querySelector('.tt-view-wrap');
     const cals = visibleCals();
     if (S.search.trim()) { wrapEl.className = 'tt-view-wrap is-list'; wrapEl.innerHTML = '<div class="tt-list"><div class="tt-list-t">搜尋「' + esc(S.search.trim()) + '」</div>' + agendaHTML(cals, addDays(startOfDay(new Date()), -365), 730, 'tt', S.search.trim()) + '</div>'; return; }
-    if (S.view === 'month') { wrapEl.className = 'tt-view-wrap is-month'; wrapEl.innerHTML = monthGridHTML(cals, S.cursor, weekStart(), 'tt', { lunar: lunarOn(), max: isMobile() ? 3 : 4 }); return; }
+    if (S.view === 'month') {
+      wrapEl.className = 'tt-view-wrap is-month';
+      // 手機：月曆不捲，六列平分高度，所以一列塞得下幾條要先量（列高 − 日期跟農曆那兩行）／條高，最多三條，再多就是 +N
+      let max = 4;
+      if (isMobile()) { const rowH = (wrapEl.clientHeight - 26) / 6; max = Math.max(1, Math.min(3, Math.floor((rowH - (lunarOn() ? 42 : 30) - 2) / 20))); }
+      wrapEl.innerHTML = monthGridHTML(cals, S.cursor, weekStart(), 'tt', { lunar: lunarOn(), max: max });
+      return;
+    }
     if (S.view === 'list') { wrapEl.className = 'tt-view-wrap is-list'; wrapEl.innerHTML = '<div class="tt-list"><div class="tt-list-t">接下來 60 天</div>' + agendaHTML(cals, startOfDay(S.cursor), 60, 'tt') + '</div>'; return; }
     wrapEl.className = 'tt-view-wrap is-time';
     wrapEl.innerHTML = timeGridHTML(cals, S.view === 'day' ? startOfDay(S.cursor) : startOfWeek(S.cursor, weekStart()), S.view === 'day' ? 1 : 7);
@@ -596,6 +603,9 @@
       save(hit.c); render(host, O);
     });
     document.addEventListener('keydown', onKey);
+    // 手機轉向／鍵盤收起：月曆的列高變了，一列塞得下幾條要重算
+    let rt = null;
+    global.addEventListener('resize', function () { if (!host || !host.isConnected || host.closest('[hidden]') || S.view !== 'month' || !isMobile()) return; clearTimeout(rt); rt = setTimeout(function () { renderView(); renderDayPanel(); }, 120); });
   }
   function onKey(e) {
     if (!host || !host.isConnected) { document.removeEventListener('keydown', onKey); return; }

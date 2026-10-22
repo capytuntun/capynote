@@ -6961,13 +6961,14 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
   .tt-msearch .tt-search input { width: 100%; flex: 1 1 auto; font-size: 16px; }
   .tt-body { position: relative; flex-direction: column; }
   /* 月曆 */
-  .tt-view-wrap.is-month { overflow: auto; }
-  .tt-view-wrap.is-month .tt-month { flex: 0 0 auto; min-height: 100%; }
+  /* 月曆永遠剛好塞滿、不捲（TimeTree 的 APP 也是）：六列平分高度，一列塞得下幾條由 renderView 量了算（使用者：「會有卷軸，拿掉」） */
+  .tt-view-wrap.is-month { overflow: hidden; }
+  .tt-view-wrap.is-month .tt-month { flex: 1 1 auto; min-height: 0; }
   .tt-wd { padding: 2px 0 6px; border-bottom: 0; font-size: 11px; color: var(--text-faint); }
   .tt-wd .is-sat { color: var(--text-faint); }
   .tt-wd-pre { display: inline; font-weight: 400; }
-  .tt-week { flex: 1 0 auto; min-height: 96px; --tt-bar0: 30px; --tt-bar-h: 20px; }
-  .tt-month.is-lunar .tt-week { --tt-bar0: 42px; min-height: 106px; }
+  .tt-week { flex: 1 1 0; min-height: 0; overflow: hidden; --tt-bar0: 30px; --tt-bar-h: 20px; }
+  .tt-month.is-lunar .tt-week { --tt-bar0: 42px; }
   .tt-week:last-child { border-bottom: 0; }
   .tt-day { border-right: 0; padding: 4px 0 0; text-align: center; }
   .tt-day:hover, .tt-day.is-other { background: transparent; }
@@ -6979,7 +6980,8 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
   .tt-bar { height: 18px; line-height: 18px; margin: 0 1px; padding: 0 4px; border-radius: 3px; font-size: 11px; font-weight: 600; text-overflow: clip; }
   .tt-bar:not(.is-allday) { background: var(--c); color: #fff; padding-left: 4px; }
   .tt-bar:not(.is-allday) i, .tt-bar:not(.is-allday) .tt-bar-t { display: none; }
-  .tt-more { left: 2px; right: 2px; bottom: 1px; font-size: 10px; }
+  /* +N 放格子右上角（列矮的時候最下面那條會蓋住它） */
+  .tt-more { left: auto; right: 3px; top: 3px; bottom: auto; font-size: 10px; line-height: 12px; }
   /* 底下滑上來的面板（點一天／Keep）：高度是 host 上的 --tt-sheet，把手可拖，拖到很矮就收掉 */
   .tt-page.is-sheet .tt-daypanel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 30; height: var(--tt-sheet, 46%); max-height: 90%; flex: none; display: flex; flex-direction: column; padding: 0 12px 12px; border: 0; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0; background: var(--bg); box-shadow: 0 -8px 24px rgba(0, 0, 0, .14); animation: tt-sheet-up .22s var(--ease-out); }
   .tt-page.is-sheet .tt-daypanel.is-anim { transition: height .22s var(--ease-out); }
