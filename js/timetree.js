@@ -349,20 +349,23 @@
     host = container; O = opts || {};
     closePop();
     const cals = calsOf();
-    host.className = 'tt-page';
+    host.className = 'tt-page' + (S.sideOpen ? ' is-side-open' : '');   // 手機版：左欄是抽屜，開著就留著（render 會整個重畫）
     const title = S.view === 'month' ? S.cursor.getFullYear() + '年' + (S.cursor.getMonth() + 1) + '月'
       : S.view === 'week' ? (function () { const a = startOfWeek(S.cursor, weekStart()), b = addDays(a, 6); return a.getFullYear() + '年' + (a.getMonth() + 1) + '月' + a.getDate() + '日 – ' + (b.getMonth() !== a.getMonth() ? (b.getMonth() + 1) + '月' : '') + b.getDate() + '日'; })()
       : S.view === 'day' ? fmtDate(S.cursor, true) : '行程';
     host.innerHTML =
       '<aside class="tt-side">' +
+        '<div class="tt-side-head"><b>行事曆</b><button class="tt-tb" type="button" data-act="sideclose" title="關閉">' + ic('x') + '</button></div>' +
         '<div class="tt-side-t">行事曆</div><div class="tt-cals">' + (cals.length ? cals.map(function (c) { return '<div class="tt-cal' + (S.hidden[c.id] ? ' is-hidden' : '') + '" data-cal="' + esc(c.id) + '"><label class="tt-cal-chk"><input type="checkbox"' + (S.hidden[c.id] ? '' : ' checked') + ' data-vis="' + esc(c.id) + '"><i style="background:' + c.cal.color + '"></i></label><span class="tt-cal-name">' + esc(c.name) + '</span>' + (c.ro ? '<span class="tt-cal-ro" title="唯讀">' + ic('lock') + '</span>' : '') + '<button class="tt-cal-more" type="button" data-calmenu="' + esc(c.id) + '" title="更多">' + ic('more-horizontal') + '</button></div>'; }).join('') : '<div class="tt-side-empty">還沒有行事曆</div>') + '</div>' +
         '<button class="tt-side-add" type="button" data-act="newcal">' + ic('plus') + '<span>建立行事曆</span></button>' +
         '<div class="tt-side-t">Keep <small>還沒排日期</small></div><div class="tt-keeps">' + keepsHTML(cals) + '</div>' +
         '<button class="tt-side-add" type="button" data-act="newkeep"' + (cals.length ? '' : ' disabled') + '>' + ic('plus') + '<span>新增 Keep</span></button>' +
         '<div class="tt-side-foot"><button class="tt-tb" type="button" data-act="settings" title="設定">' + ic('settings') + '<span>設定</span></button></div>' +
       '</aside>' +
+      '<div class="tt-side-bg" data-act="sideclose"></div>' +
       '<div class="tt-main">' +
         '<div class="tt-head">' +
+          '<button class="tt-tb tt-side-btn" type="button" data-act="side" title="行事曆與 Keep">' + ic('calendar') + '</button>' +
           '<button class="tt-tb tt-today" type="button" data-act="today">今天</button>' +
           '<button class="tt-tb tt-nav" type="button" data-act="prev" title="上一個">' + ic('chevron-left') + '</button><button class="tt-tb tt-nav" type="button" data-act="next" title="下一個">' + ic('chevron-right') + '</button>' +
           '<button class="tt-title" type="button" data-act="jump" title="跳到…">' + esc(title) + '</button>' +
@@ -484,7 +487,7 @@
     if (host.closest('[hidden]')) return;   // 行事曆的頁面沒開著（在別的畫面）就不要接快速鍵
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable)) return;
     if (document.querySelector('.modal-overlay')) return;
-    if (e.key === 'Escape') { if (popEl || menuEl) { closePop(); } else if (S.selected) { S.selected = null; renderDayPanel(); } return; }
+    if (e.key === 'Escape') { if (popEl || menuEl) { closePop(); } else if (S.sideOpen) { act('sideclose'); } else if (S.selected) { S.selected = null; renderDayPanel(); } return; }
     if (e.key === 't' || e.key === 'T') { act('today'); }
     else if (e.key === 'ArrowLeft') act('prev'); else if (e.key === 'ArrowRight') act('next');
     else if (e.key === 'm' || e.key === 'M') setView('month'); else if (e.key === 'w' || e.key === 'W') setView('week'); else if (e.key === 'd' || e.key === 'D') setView('day'); else if (e.key === 'l' || e.key === 'L') setView('list');
@@ -498,6 +501,8 @@
     else if (a === 'newkeep') openEditor(null, null, { keep: true });
     else if (a === 'newcal') newCalendarDialog();
     else if (a === 'settings') settingsPop(host.querySelector('[data-act="settings"]'));
+    else if (a === 'side') { S.sideOpen = !S.sideOpen; host.classList.toggle('is-side-open', S.sideOpen); }
+    else if (a === 'sideclose') { S.sideOpen = false; host.classList.remove('is-side-open'); }
     else if (a === 'jump') jumpPop(host.querySelector('.tt-title'));
     else if (a === 'dp-add') openEditor(null, null, { date: S.selected });
     else if (a === 'dp-close') { S.selected = null; renderDayPanel(); }
@@ -854,7 +859,7 @@
       });
     });
   }
-  function teardown() { S.timers.forEach(clearTimeout); S.timers = []; closePop(); document.removeEventListener('keydown', onKey); }
+  function teardown() { S.timers.forEach(clearTimeout); S.timers = []; S.sideOpen = false; closePop(); document.removeEventListener('keydown', onKey); }
 
   global.TimeTree = { isNote: isNote, generate: generate, parse: parse, serialize: serialize, payloadOf: payloadOf, wrap: wrap, blockHTML: blockHTML, render: render, closePop: closePop, teardown: teardown, expand: expand, toICS: toICS, fromICS: fromICS, cleanEvent: cleanEvent, LABELS: LABELS, CAL_COLORS: CAL_COLORS, state: S };
 })(window);

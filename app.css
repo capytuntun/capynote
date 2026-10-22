@@ -6878,3 +6878,87 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
 .fm-tagcloud .fm-tag-b { height: 24px; padding: 0 9px; border-radius: 12px; font-size: var(--fs-xs); }
 .fm-cities { max-height: 200px; overflow: auto; }
 .fm-foot { margin-top: auto; padding: 12px 2px 0; font-size: 11px; color: var(--text-faint); }
+
+/* ===== 手機版的圖資中心與 timetree（2026-10-22，「手機版本的圖資中心差太多了，體驗要一樣」「timetree 也是體驗太差」）
+   桌機版的東西一個都不少，只是換地方放：
+   - 左欄（圖資中心的圖層／去過沒／縣市／標籤、timetree 的行事曆／Keep／設定）變成從左邊滑出的抽屜，
+     標題列最左邊的按鈕打開（圖資中心的那顆帶著「幾個篩選在作用」的數字），點背景、✕ 或 Esc 關。
+     抽屜的內容就是桌機的 .fm-side／.tt-side 本身，不是另一份。
+   - 圖資中心：地圖在上面、清單是下面一張可以拖的面板（js 的 bindSheet：拖把手放開靠到 peek／half／full，點一下切換），
+     高度是 .fm-page 的 --fm-sheet；「在地圖上點位置」時面板先收到只剩把手。
+   - timetree：點一天的面板放在月曆下面（桌機在右邊）；標題列折成兩列，搜尋框在第二列拉滿。
+   - 滑過才出現的按鈕（地點的編輯／⋯、圖層跟行事曆的 ⋯）在觸控裝置上一直顯示——手機沒有「滑過去」。
+   斷點跟全站一樣是 900px；這一段放在檔案最後，才蓋得過上面 ≤900／≤640 把 .fm-side／.tt-side 整個 display:none 的舊規則。 ===== */
+.fm-side-head, .tt-side-head, .fm-side-btn, .tt-side-btn, .fm-side-bg, .tt-side-bg, .fm-sheet-handle { display: none; }
+.fm-side-btn, .tt-side-btn { position: relative; width: 36px; padding: 0; flex: 0 0 auto; }
+.fm-side-badge { position: absolute; right: 1px; top: 1px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 10px; line-height: 16px; text-align: center; font-weight: 700; }
+@media (hover: none), (max-width: 900px) {
+  .fm-row-tools { display: inline-flex; position: static; flex-direction: column; margin: -5px -4px -5px 0; border: 0; box-shadow: none; background: transparent; }
+  .fm-row.is-sel .fm-row-thumb, .fm-row:hover .fm-row-thumb { margin-right: 0; }
+  .fm-layer-more { display: inline-flex; }
+  .fm-layer:hover .fm-layer-n { display: inline-block; }
+  .tt-cal-more { display: inline-flex; }
+}
+@media (max-width: 900px) {
+  .fm-page, .tt-page { position: relative; overflow: hidden; }
+  .fm-side, .tt-side { display: flex; position: absolute; left: 0; top: 0; bottom: 0; z-index: 40; width: min(320px, 86vw); flex: none; border-right: 1px solid var(--border); box-shadow: var(--shadow); transform: translateX(-105%); transition: transform .22s var(--ease-out); }
+  .fm-page.is-side-open .fm-side, .tt-page.is-side-open .tt-side { transform: none; }
+  .fm-side-bg, .tt-side-bg { display: block; position: absolute; inset: 0; z-index: 39; background: rgba(0, 0, 0, .35); opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .fm-page.is-side-open .fm-side-bg, .tt-page.is-side-open .tt-side-bg { opacity: 1; pointer-events: auto; }
+  .fm-side-head, .tt-side-head { display: flex; align-items: center; gap: 6px; height: 36px; margin: -2px 0 6px; font-size: var(--fs-base); }
+  .fm-side-head b, .tt-side-head b { flex: 1 1 auto; }
+  .fm-side-head .tt-tb, .tt-side-head .tt-tb { width: 32px; padding: 0; }
+  .tt-side-head + .tt-side-t { display: none; }
+  .fm-side-btn, .tt-side-btn { display: inline-flex; }
+  /* 圖資中心：地圖在上，清單是下面的面板 */
+  .fm-body { flex-direction: column-reverse; }
+  .fm-map-wrap { flex: 1 1 auto; }
+  .fm-list-wrap { position: relative; z-index: 2; flex: 0 0 var(--fm-sheet, 46%); display: flex; flex-direction: column; overflow: hidden; border-right: 0; border-top: 1px solid var(--border); box-shadow: 0 -4px 14px rgba(0, 0, 0, .08); }
+  .fm-list-wrap.is-anim { transition: flex-basis .22s var(--ease-out); }
+  .fm-list-wrap .fm-list { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-top: 0; }
+  .fm-sheet-handle { display: flex; align-items: center; justify-content: center; flex: 0 0 auto; height: 24px; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+  .fm-sheet-handle i { width: 40px; height: 4px; border-radius: 2px; background: var(--border-strong); }
+  .fm-head { padding: 8px 10px; gap: 6px; }
+  .fm-search { flex: 1 1 140px; min-width: 0; }
+  .fm-geo-results, .fm-layer-preview { margin-left: 0; }
+  .fm-gallery-stage img { max-width: 100%; }
+  .fm-gallery-nav { background: rgba(0, 0, 0, .35); }
+  /* Leaflet 自己的圖層 z-index 是 400 起跳，不圈起來會畫在 z-index 40 的抽屜上面 */
+  .fm-map-wrap { isolation: isolate; }
+  /* 編輯對話框的座標列：座標自己一列，按鈕在下一列靠右 */
+  .fm-coord-row .tt-ed-l { display: none; }
+  .fm-coord-row .fm-coord { flex: 1 1 100%; padding-left: 56px; }
+  /* timetree：點一天的面板放在月曆下面；標題列折兩列 */
+  .tt-body { flex-direction: column; }
+  /* 月曆在面板上面會變矮：一列至少要放得下日期加三條行程（26 + 3×22，monthGridHTML 的 top），不夠就讓月曆捲，不要把列壓扁 */
+  .tt-view-wrap.is-month { overflow: auto; }
+  .tt-view-wrap.is-month .tt-month { flex: 0 0 auto; min-height: 100%; }
+  .tt-week { flex: 1 0 auto; min-height: 96px; }
+  .tt-daypanel { flex: 0 0 42%; border-left: 0; border-top: 1px solid var(--border); }
+  .tt-head { flex-wrap: wrap; height: auto; min-height: 52px; padding: 6px 8px; row-gap: 6px; }
+  .tt-views { order: 10; }
+  .tt-search { display: inline-flex; order: 11; flex: 1 1 120px; min-width: 0; }
+  .tt-search input { width: 100%; flex: 1 1 auto; }
+  .tt-title { font-size: var(--fs-base); padding: 0 4px; }
+  .tt-time-head, .tt-time-grid { grid-template-columns: 40px repeat(var(--n, 7), 1fr); }
+  .tt-agenda-time { flex-basis: 76px; }
+  .tt-list { padding: 12px 12px 40vh; }
+}
+@media (max-width: 640px) {
+  .tt-daypanel:not([hidden]) { display: block; }
+  .tt-search { display: inline-flex; }
+  .tt-today { padding: 0 8px; }
+  .fm-add { padding: 0 10px; }
+  /* 月曆格子只有 50 多 px 寬：有時間的行程只顯示標題（時間在點開的面板跟詳細卡裡），字小一點、留白少一點 */
+  .tt-bar { font-size: 11px; padding: 0 3px; margin: 0 1px; }
+  .tt-bar:not(.is-allday) { padding-left: 2px; }
+  .tt-bar:not(.is-allday) .tt-bar-t { display: none; }
+  .tt-bar:not(.is-allday) i { width: 6px; height: 6px; margin-right: 3px; }
+  .tt-day { padding: 3px 3px; }
+  /* 週檢視一欄只有 50 多 px：事件格只放標題（日檢視一欄很寬，時間照舊） */
+  .tt-time-grid[style*="--n:7"] .tt-wev { padding: 2px 3px; }
+  .tt-time-grid[style*="--n:7"] .tt-wev-t { display: none; }
+  /* 「在地圖上點位置」的提示：一行放得下，不要折成四行 */
+  .fm-pick-banner { white-space: nowrap; gap: 6px; padding: 6px 10px; }
+  .fm-pick-banner .tt-btn { padding: 0 8px; }
+}

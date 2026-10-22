@@ -165,13 +165,19 @@
     menuEl.addEventListener('click', function (e) { const b = e.target.closest('[data-a]'); if (!b || b.disabled) return; const a = b.getAttribute('data-a'); closePop(); onPick(a); });
   }
   document.addEventListener('mousedown', function (e) { if ((popEl && !popEl.contains(e.target)) || (menuEl && !menuEl.contains(e.target))) { if (!e.target.closest('.tt-pop, .tt-menu')) closePop(); } }, true);
+  // 手機版抽屜：Esc 關。掛在 document 上，因為在抽屜裡點篩選會重畫、焦點掉回 body，掛在頁面根上的 keydown 收不到
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || !built || !built.classList.contains('is-side-open') || built.closest('[hidden]')) return;
+    if (popEl || menuEl || document.querySelector('.modal-overlay')) return;
+    openSide(false); e.stopPropagation();
+  }, true);
 
-  const S = { search: '', tags: [], visit: 'all', city: '', hidden: {}, selected: null, picking: null, locating: null };
+  const S = { search: '', tags: [], visit: 'all', city: '', hidden: {}, selected: null, picking: null, locating: null, sheet: 'half', sheetBefore: null };
   try { S.hidden = JSON.parse(lsGet('fmHidden', '{}')) || {}; } catch (e) { S.hidden = {}; }
   const cache = new Map();   // noteId → { content, map }
   let host = null, O = null, built = null;
   // Leaflet 的東西，建一次、跨 render 留著（重畫清單時地圖不重載圖磚）
-  let leaf = null, markerLayer = null, markers = {}, fitted = false, pickBanner = null, seeding = false;
+  let leaf = null, markerLayer = null, markers = {}, fitted = false, pickBanner = null, seeding = false, mapRO = null;
 
   function mapsOf() {
     return (O.maps || []).map(function (n) {
@@ -224,9 +230,10 @@
       host = container;
       container.innerHTML = '';
       built = el('div', 'fm-page');
-      built.innerHTML = '<aside class="fm-side"></aside><section class="fm-main"><div class="fm-head"></div><div class="fm-body"><div class="fm-list-wrap"><div class="fm-list"></div></div><div class="fm-map-wrap"><div class="fm-map"></div><div class="fm-map-empty" hidden></div></div></div></section>';
+      built.innerHTML = '<aside class="fm-side"></aside><div class="fm-side-bg"></div><section class="fm-main"><div class="fm-head"></div><div class="fm-body"><div class="fm-list-wrap"><div class="fm-sheet-handle" title="拖曳調整清單高度；點一下展開或收起"><i></i></div><div class="fm-list"></div></div><div class="fm-map-wrap"><div class="fm-map"></div><div class="fm-map-empty" hidden></div></div></div></section>';
       container.appendChild(built);
       bind(built);
+      bindSheet(built);
       leaf = null; markers = {}; fitted = false;
     }
     // 第一次：一個圖層都沒有就把預設的兩層建起來（美食地圖、步道地圖），一層一層建，render 連著被叫也只建一次
@@ -247,7 +254,10 @@
     const side = built.querySelector('.fm-side');
     const maps = mapsOf(), tags = tagCounts(), all = allPlaces();
     const visited = all.filter(function (x) { return x.p.visited; }).length;
-    let h = '<section class="fm-sec fm-sec-layers"><div class="fm-sec-h"><span>圖層</span><small>' + maps.length + '</small>' + (O.onCreate ? '<button type="button" class="fm-sec-btn" data-e="newmap" title="新增圖層">' + ic('plus') + '</button>' : '') + '</div><div class="fm-layers">';
+    const keepScroll = side.scrollTop;
+    // 抽屜模式（手機）才看得到的標題列：桌機上 CSS 把它藏起來
+    let h = '<div class="fm-side-head"><b>圖層與篩選</b><button type="button" class="tt-tb" data-e="sideclose" title="關閉">' + ic('x') + '</button></div>';
+    h += '<section class="fm-sec fm-sec-layers"><div class="fm-sec-h"><span>圖層</span><small>' + maps.length + '</small>' + (O.onCreate ? '<button type="button" class="fm-sec-btn" data-e="newmap" title="新增圖層">' + ic('plus') + '</button>' : '') + '</div><div class="fm-layers">';
     maps.forEach(function (m) {
       const hid = !!S.hidden[m.id];
       h += '<div class="fm-mapline fm-layer' + (hid ? ' is-hidden' : '') + '" data-map="' + esc(m.id) + '" title="' + esc(m.kind.label + (m.map.desc ? '：' + m.map.desc : '')) + '">' +
@@ -273,12 +283,19 @@
     h += '</div></section>';
     h += '<div class="fm-foot">底圖 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> 貢獻者</div>';
     side.innerHTML = h;
+    side.scrollTop = keepScroll;   // 在抽屜裡點篩選會重畫，捲動位置留著
+  }
+  // 手機版標題列最左邊那顆按鈕上的數字：目前有幾個篩選在作用（去過沒、縣市、標籤、藏起來的圖層）
+  function filterCount() {
+    return (S.visit !== 'all' ? 1 : 0) + (S.city ? 1 : 0) + S.tags.length + Object.keys(S.hidden).filter(function (id) { return !!mapById(id); }).length;
   }
   function paintHead() {
     const head = built.querySelector('.fm-head');
     const n = filtered().length, total = allPlaces().length;
     const canAdd = mapsOf().some(function (m) { return !m.ro; });
-    head.innerHTML = '<label class="tt-search fm-search">' + ic('search') + '<input type="search" placeholder="搜尋名稱、地址、標籤、來源…" value="' + esc(S.search) + '" data-f="search" aria-label="搜尋地點"></label>' +
+    const fc = filterCount();
+    head.innerHTML = '<button class="tt-tb fm-side-btn" type="button" data-e="side" title="圖層與篩選">' + ic('layers') + (fc ? '<span class="fm-side-badge">' + fc + '</span>' : '') + '</button>' +
+      '<label class="tt-search fm-search">' + ic('search') + '<input type="search" placeholder="搜尋名稱、地址、標籤、來源…" value="' + esc(S.search) + '" data-f="search" aria-label="搜尋地點"></label>' +
       (S.tags.length ? '<div class="fm-active-tags">' + S.tags.map(function (t) { return '<span class="fm-tag" ' + tagStyle(t) + '>' + esc(t) + '<button type="button" data-untag="' + esc(t) + '" title="取消這個標籤的篩選">' + ic('x') + '</button></span>'; }).join('') + '</div>' : '') +
       '<span class="fm-count">' + countText() + '</span><span class="tt-sp"></span>' +
       (missingCount() && !S.locating ? '<button class="tt-tb" type="button" data-e="locate" title="用地址把還沒有座標的地點定位到地圖上">' + ic('map-pin') + '<span class="fm-tb-t">定位 ' + missingCount() + ' 個未定位</span></button>' : '') +
@@ -341,7 +358,60 @@
       S.selected = null; paintList();
     });
     leaf.on('popupclose', function () { /* 保持選取，只收小卡 */ });
+    if (global.ResizeObserver) {
+      mapRO = new ResizeObserver(function () { if (leaf) leaf.invalidateSize(); });
+      mapRO.observe(built.querySelector('.fm-map-wrap'));
+    }
   }
+
+  // ---------------- 手機版：清單是地圖下面一張可以拖的面板 ----------------
+  // 三個停靠點：peek（只剩把手跟一列）、half、full；拖把手放開就靠到最近的一個，點一下在 half／full 之間切換。
+  // 高度寫成 .fm-page 上的 --fm-sheet，桌機版的 CSS 根本不讀它，所以桌機完全不受影響。
+  const SHEET = { peek: 96, half: 0.46, full: 0.9 };
+  function isMobile() { return !!(window.matchMedia && window.matchMedia('(max-width: 900px)').matches); }
+  function sheetSnapPx(k) {
+    const body = built && built.querySelector('.fm-body');
+    const max = body ? body.clientHeight : 0;
+    return k === 'peek' ? SHEET.peek : Math.round(max * SHEET[k]);
+  }
+  function setSheet(px, animate) {
+    if (!built) return;
+    built.querySelector('.fm-list-wrap').classList.toggle('is-anim', !!animate);
+    built.style.setProperty('--fm-sheet', Math.max(SHEET.peek, Math.min(px, sheetSnapPx('full'))) + 'px');
+  }
+  function sheetSnap(k) { S.sheet = k; setSheet(sheetSnapPx(k), true); }
+  // 點了清單的一列要看得到地圖飛過去：面板全開就先收到一半
+  function sheetShowMap() { if (isMobile() && S.sheet === 'full') sheetSnap('half'); }
+  function bindSheet(root) {
+    const h = root.querySelector('.fm-sheet-handle'), wrap = root.querySelector('.fm-list-wrap');
+    let drag = null;
+    h.addEventListener('pointerdown', function (e) {
+      if (!isMobile()) return;
+      drag = { y: e.clientY, h: wrap.getBoundingClientRect().height, moved: false };
+      wrap.classList.remove('is-anim');
+      try { h.setPointerCapture(e.pointerId); } catch (err) { /* */ }
+      e.preventDefault();
+    });
+    h.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      const dy = drag.y - e.clientY;
+      if (!drag.moved && Math.abs(dy) < 4) return;
+      drag.moved = true;
+      setSheet(drag.h + dy, false);
+    });
+    const end = function () {
+      if (!drag) return;
+      const d = drag; drag = null;
+      if (!d.moved) { sheetSnap(S.sheet === 'full' ? 'half' : 'full'); return; }
+      const cur = wrap.getBoundingClientRect().height;
+      let best = 'half', bd = Infinity;
+      ['peek', 'half', 'full'].forEach(function (k) { const dd = Math.abs(sheetSnapPx(k) - cur); if (dd < bd) { bd = dd; best = k; } });
+      sheetSnap(best);
+    };
+    h.addEventListener('pointerup', end);
+    h.addEventListener('pointercancel', end);
+  }
+  function openSide(on) { if (built) built.classList.toggle('is-side-open', !!on); }
   function pinIcon(color, sel, icon) {
     return L.divIcon({ className: 'fm-pin-wrap', html: '<i class="fm-pin' + (sel ? ' is-sel' : '') + '" style="--c:' + color + '">' + ic(icon || 'map-pin') + '</i>', iconSize: [26, 34], iconAnchor: [13, 32], popupAnchor: [0, -30] });
   }
@@ -409,6 +479,7 @@
   // 在地圖上點位置：對話框先收起、地圖上掛一條提示，點一下就把座標帶回對話框（反查一次地址）
   function startPick(onPick) {
     S.picking = onPick;
+    if (isMobile()) { S.sheetBefore = S.sheet; sheetSnap('peek'); openSide(false); }
     if (leaf) leaf.getContainer().classList.add('is-picking');
     pickBanner = el('div', 'fm-pick-banner', ic('map-pin') + ' 在地圖上點一下店的位置　<button type="button" class="tt-btn" data-e="cancelpick">取消（Esc）</button>');
     built.querySelector('.fm-map-wrap').appendChild(pickBanner);
@@ -416,6 +487,7 @@
   }
   function endPick() {
     S.picking = null;
+    if (S.sheetBefore) { sheetSnap(S.sheetBefore); S.sheetBefore = null; }
     if (leaf) leaf.getContainer().classList.remove('is-picking');
     if (pickBanner) { pickBanner.remove(); pickBanner = null; }
   }
@@ -425,7 +497,7 @@
   // ---------------- 事件 ----------------
   function bind(root) {
     root.addEventListener('input', function (e) {
-      if (e.target.getAttribute('data-f') === 'search') { S.search = e.target.value; paintList(); paintMarkers(); const c = root.querySelector('.fm-count'); if (c) { const n = filtered().length, t = allPlaces().length; c.textContent = n === t ? t + ' 家店' : n + ' / ' + t + ' 家店'; } }
+      if (e.target.getAttribute('data-f') === 'search') { S.search = e.target.value; paintList(); paintMarkers(); const c = root.querySelector('.fm-count'); if (c) c.textContent = countText(); }
     });
     root.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && S.picking) { cancelPick(); e.stopPropagation(); return; }
@@ -439,8 +511,11 @@
     root.addEventListener('click', function (e) {
       const t = e.target;
       let b;
+      if (t.closest('.fm-side-bg')) { openSide(false); return; }
       if ((b = t.closest('[data-e]'))) {
         const a = b.getAttribute('data-e');
+        if (a === 'side') { openSide(!built.classList.contains('is-side-open')); return; }
+        if (a === 'sideclose') { openSide(false); return; }
         if (a === 'newmap') return layerDialog(null);
         if (a === 'add') return openEditor(null, null);
         if (a === 'fit') return fitAll();
@@ -464,7 +539,7 @@
       if ((b = t.closest('[data-pmore]'))) { const x = findPlace(b.getAttribute('data-pmore')); if (x) { const r = b.getBoundingClientRect(); placeMenu(x, r.left, r.bottom + 4); } return; }
       if (t.closest('a')) return;
       const row = t.closest('.fm-row');
-      if (row) { focusPlace(row.getAttribute('data-id'), true); return; }
+      if (row) { sheetShowMap(); focusPlace(row.getAttribute('data-id'), true); return; }
     });
     root.addEventListener('contextmenu', function (e) {
       const row = e.target.closest('.fm-row');
@@ -972,7 +1047,8 @@
     if (S.picking) endPick();
     document.querySelectorAll('.fm-ov').forEach(function (o) { o.remove(); });
     if (leaf) { try { leaf.remove(); } catch (e) { /* */ } }
-    leaf = null; markerLayer = null; markers = {}; fitted = false; built = null;
+    if (mapRO) { try { mapRO.disconnect(); } catch (e) { /* */ } mapRO = null; }
+    leaf = null; markerLayer = null; markers = {}; fitted = false; built = null; S.sheet = 'half'; S.sheetBefore = null;
   }
   // 從別處進來（#note/<地圖 id>）：把那張地圖顯示出來、全部放進畫面
   function reveal(mapId) {
