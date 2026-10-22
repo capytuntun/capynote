@@ -325,9 +325,11 @@
     if (!rows.length) {
       const total = allPlaces().length;
       list.innerHTML = '<div class="fm-empty">' + ic('map-pin') + '<p>' + (total ? '沒有符合的地點，換個關鍵字或清掉篩選。' : mapsOf().length ? '還沒有地點。按右上「' + addLabel() + '」，填名稱跟地址就會出現在地圖上。' : '先新增一個圖層。') + '</p></div>';
+      fitSheet();
       return;
     }
     list.innerHTML = rows.map(placeRow).join('');
+    fitSheet();
   }
 
   // ---------------- Leaflet ----------------
@@ -369,11 +371,21 @@
   // 高度寫成 .fm-page 上的 --fm-sheet，桌機版的 CSS 根本不讀它，所以桌機完全不受影響。
   const SHEET = { peek: 96, half: 0.46, full: 0.9 };
   function isMobile() { return !!(window.matchMedia && window.matchMedia('(max-width: 900px)').matches); }
+  // half 不會比內容高：清單只有一兩列時面板就只有那幾列的高度，不會留一大塊空白（使用者：「圖資中心幹嘛空一大塊出來」）
   function sheetSnapPx(k) {
     const body = built && built.querySelector('.fm-body');
     const max = body ? body.clientHeight : 0;
-    return k === 'peek' ? SHEET.peek : Math.round(max * SHEET[k]);
+    if (k === 'peek') return SHEET.peek;
+    const px = Math.round(max * SHEET[k]);
+    if (k !== 'half') return px;
+    // 內容的高度要用 Range 量（scrollHeight 在盒子比內容高時回的是盒子的高度）
+    const list = built.querySelector('.fm-list');
+    let content = 0;
+    if (list && list.firstChild) { try { const rg = document.createRange(); rg.selectNodeContents(list); content = rg.getBoundingClientRect().height; } catch (e) { content = list.scrollHeight; } }
+    const need = 24 + Math.ceil(content) + 8;
+    return Math.max(SHEET.peek, Math.min(px, need));
   }
+  function fitSheet() { if (built && isMobile() && S.sheet === 'half') setSheet(sheetSnapPx('half'), true); }
   function setSheet(px, animate) {
     if (!built) return;
     built.querySelector('.fm-list-wrap').classList.toggle('is-anim', !!animate);

@@ -5390,6 +5390,12 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 .tt-dialog .modal-actions .btn { flex: 0 0 auto; }
 .tt-label-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 .tt-label-row i { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto; }
+/* 手機版才有的東西（標題列、行事曆籤、搜尋列、分頁、＋、面板把手、「週」字）桌機一律藏起來；手機的規則在檔尾 RWD 區 */
+.tt-mhead, .tt-chips, .tt-msearch, .tt-tabs, .tt-fab, .tt-dp-handle, .tt-wd-pre { display: none; }
+.tt-menu-item.on { font-weight: 700; color: var(--accent); }
+/* 農曆（設定裡可關）：桌機是日期旁邊的小字，手機是日期下面一行 */
+.tt-lunar, .tts-lunar { font-size: 10px; color: var(--text-faint); margin-left: 4px; font-variant-numeric: tabular-nums; }
+@keyframes tt-sheet-up { from { transform: translateY(100%); } to { transform: none; } }
 .dash-row-ic.kind-timetree, .dash-row-kind.kind-timetree { background: rgba(46, 196, 166, .16); color: #1a9a81; }
 :root[data-theme="dark"] .dash-row-ic.kind-timetree, :root[data-theme="dark"] .dash-row-kind.kind-timetree { color: #5fdcc3; }
 .dash-row-ic.kind-progress, .dash-row-kind.kind-progress { background: rgba(217, 150, 42, .16); color: #b8741a; }
@@ -6744,13 +6750,9 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
 .markdown-body .fms-empty { padding: 14px; text-align: center; color: var(--text-faint); }
 @media (max-width: 900px) {
   #app.sidebar-open .fm-page { padding-left: 0; }
-  .fm-side { flex-basis: 190px; }
-  .fm-body { flex-direction: column; }
-  .fm-list-wrap { flex: 0 0 42%; border-right: 0; border-bottom: 1px solid var(--border); }
   .fm-geo-results { margin-left: 0; }
 }
 @media (max-width: 640px) {
-  .fm-side { display: none; }
   .tt-tb .fm-tb-t { display: none; }
 }
 .fm-tile-warn { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 1000; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 8px 12px; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); box-shadow: var(--shadow); font-size: var(--fs-sm); line-height: 1.4; }
@@ -6928,33 +6930,88 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
   /* 編輯對話框的座標列：座標自己一列，按鈕在下一列靠右 */
   .fm-coord-row .tt-ed-l { display: none; }
   .fm-coord-row .fm-coord { flex: 1 1 100%; padding-left: 56px; }
-  /* timetree：點一天的面板放在月曆下面；標題列折兩列 */
-  .tt-body { flex-direction: column; }
-  /* 月曆在面板上面會變矮：一列至少要放得下日期加三條行程（26 + 3×22，monthGridHTML 的 top），不夠就讓月曆捲，不要把列壓扁 */
+  /* ---- timetree 手機版：照 TimeTree 的 APP（使用者拿真的 TimeTree 截圖來比） ----
+     桌機的標題列整個藏掉，換成大字月份＋一列行事曆籤；月曆塞滿剩下的高度：永遠六列、沒有直線、日期置中、底下一行農曆、
+     每個行程都是實色小條；右下圓形 ＋、底下四個分頁；點一天是從底下滑上來的面板（.is-sheet），Keep 也用它。 */
+  .tt-main { position: relative; }
+  .tt-head, .tt-side-btn { display: none; }
+  .tt-mhead { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; height: 50px; padding: 0 8px 0 12px; }
+  .tt-mtitle { display: inline-flex; align-items: center; gap: 4px; height: 40px; padding: 0 6px 0 2px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 22px; font-weight: 800; letter-spacing: .01em; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .tt-mtitle .ic-svg { width: 16px; height: 16px; color: var(--text-dim); }
+  .tt-mtoday { height: 30px; padding: 0 10px; border-color: var(--border-strong); border-radius: 15px; font-size: var(--fs-xs); font-weight: 600; }
+  .tt-mviews { width: 36px; padding: 0; }
+  .tt-mviews .ic-svg { width: 18px; height: 18px; }
+  .tt-chips { display: flex; align-items: flex-start; gap: 4px; flex: 0 0 auto; padding: 0 4px 8px 12px; }
+  .tt-chips-scroll { flex: 1 1 auto; min-width: 0; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .tt-chips-scroll::-webkit-scrollbar { display: none; }
+  .tt-chips.is-open .tt-chips-scroll { flex-wrap: wrap; overflow: visible; }
+  .tt-chips.is-open .tt-chips-more .ic-svg { transform: rotate(180deg); }
+  .tt-chips-more { display: inline-flex; width: 32px; height: 36px; padding: 0; flex: 0 0 auto; color: var(--text-dim); }
+  .tt-chip-cal { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; height: 36px; padding: 0 14px 0 6px; border: 0; border-radius: 10px; background: var(--bg-3); color: var(--text); font: inherit; font-size: var(--fs-sm); font-weight: 700; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .tt-chip-cal i { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; box-sizing: border-box; border: 2px solid var(--c, var(--border-strong)); border-radius: 6px; color: #fff; }
+  .tt-chip-cal i .ic-svg { width: 14px; height: 14px; opacity: 0; }
+  .tt-chip-cal.is-on i { background: var(--c); border-color: var(--c); }
+  .tt-chip-cal.is-on i .ic-svg { opacity: 1; }
+  .tt-chip-cal:not(.is-on) { color: var(--text-dim); }
+  .tt-chip-new i { background: #2ec4a6; border-color: #2ec4a6; }
+  .tt-chip-new i .ic-svg { opacity: 1; }
+  .tt-msearch { display: flex; align-items: center; gap: 4px; padding: 0 8px 8px 12px; }
+  .tt-msearch[hidden] { display: none; }
+  .tt-msearch .tt-search { flex: 1 1 auto; min-width: 0; height: 36px; border-radius: 18px; }
+  .tt-msearch .tt-search input { width: 100%; flex: 1 1 auto; font-size: 16px; }
+  .tt-body { position: relative; flex-direction: column; }
+  /* 月曆 */
   .tt-view-wrap.is-month { overflow: auto; }
   .tt-view-wrap.is-month .tt-month { flex: 0 0 auto; min-height: 100%; }
-  .tt-week { flex: 1 0 auto; min-height: 96px; }
-  .tt-daypanel { flex: 0 0 42%; border-left: 0; border-top: 1px solid var(--border); }
-  .tt-head { flex-wrap: wrap; height: auto; min-height: 52px; padding: 6px 8px; row-gap: 6px; }
-  .tt-views { order: 10; }
-  .tt-search { display: inline-flex; order: 11; flex: 1 1 120px; min-width: 0; }
-  .tt-search input { width: 100%; flex: 1 1 auto; }
-  .tt-title { font-size: var(--fs-base); padding: 0 4px; }
+  .tt-wd { padding: 2px 0 6px; border-bottom: 0; font-size: 11px; color: var(--text-faint); }
+  .tt-wd .is-sat { color: var(--text-faint); }
+  .tt-wd-pre { display: inline; font-weight: 400; }
+  .tt-week { flex: 1 0 auto; min-height: 96px; --tt-bar0: 30px; --tt-bar-h: 20px; }
+  .tt-month.is-lunar .tt-week { --tt-bar0: 42px; min-height: 106px; }
+  .tt-week:last-child { border-bottom: 0; }
+  .tt-day { border-right: 0; padding: 4px 0 0; text-align: center; }
+  .tt-day:hover, .tt-day.is-other { background: transparent; }
+  .tt-day.is-today, .tt-day.is-today:hover { background: var(--bg-3); }
+  .tt-num { min-width: 24px; height: 24px; padding: 0; font-size: 15px; font-weight: 600; }
+  .tt-day.is-sat .tt-num { color: inherit; }
+  .tt-day.is-today .tt-num { background: var(--text); color: var(--bg) !important; }
+  .tt-lunar { display: block; margin: -1px 0 0; font-size: 10px; line-height: 12px; }
+  .tt-bar { height: 18px; line-height: 18px; margin: 0 1px; padding: 0 4px; border-radius: 3px; font-size: 11px; font-weight: 600; text-overflow: clip; }
+  .tt-bar:not(.is-allday) { background: var(--c); color: #fff; padding-left: 4px; }
+  .tt-bar:not(.is-allday) i, .tt-bar:not(.is-allday) .tt-bar-t { display: none; }
+  .tt-more { left: 2px; right: 2px; bottom: 1px; font-size: 10px; }
+  /* 底下滑上來的面板（點一天／Keep）：高度是 host 上的 --tt-sheet，把手可拖，拖到很矮就收掉 */
+  .tt-page.is-sheet .tt-daypanel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 30; height: var(--tt-sheet, 46%); max-height: 90%; flex: none; display: flex; flex-direction: column; padding: 0 12px 12px; border: 0; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0; background: var(--bg); box-shadow: 0 -8px 24px rgba(0, 0, 0, .14); animation: tt-sheet-up .22s var(--ease-out); }
+  .tt-page.is-sheet .tt-daypanel.is-anim { transition: height .22s var(--ease-out); }
+  .tt-dp-handle { display: flex; align-items: center; justify-content: center; flex: 0 0 auto; height: 22px; margin: 0 -12px; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+  .tt-dp-handle i { width: 40px; height: 4px; border-radius: 2px; background: var(--border-strong); }
+  .tt-page.is-sheet .tt-dp-list { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .tt-dp-keep { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 17px; background: var(--bg-3); color: var(--text-dim); }
+  .tt-dp-keep .ic-svg { width: 18px; height: 18px; }
+  .tt-dp-date strong { font-size: var(--fs-base); color: var(--text); }
+  .tt-keeps .tt-keep { padding: 10px 12px; }
+  /* ＋ 跟底下的分頁 */
+  .tt-fab { display: inline-flex; align-items: center; justify-content: center; position: absolute; right: 16px; bottom: 16px; z-index: 20; width: 56px; height: 56px; border: 0; border-radius: 50%; background: #2ec4a6; color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, .22); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .tt-fab .ic-svg { width: 26px; height: 26px; }
+  .tt-fab:disabled { opacity: .5; }
+  .tt-page.is-sheet .tt-fab { display: none; }
+  .tt-tabs { display: grid; grid-template-columns: repeat(4, 1fr); flex: 0 0 auto; height: 58px; border-top: 1px solid var(--border); background: var(--bg); }
+  .tt-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; background: transparent; color: var(--text-dim); font: inherit; font-size: 11px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .tt-tab .ic-svg { width: 22px; height: 22px; padding: 3px 12px; border-radius: 14px; box-sizing: content-box; transition: background var(--dur-1) var(--ease-out); }
+  .tt-tab.on { color: #1a9a81; font-weight: 600; }
+  .tt-tab.on .ic-svg { background: rgba(46, 196, 166, .18); color: #1a9a81; }
+  :root[data-theme="dark"] .tt-tab.on, :root[data-theme="dark"] .tt-tab.on .ic-svg { color: #5fdcc3; }
+  /* 詳細卡在手機是貼底的卡片 */
+  .tt-detail { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; max-width: none; border-radius: 14px; }
+  /* 時間軸／清單 */
   .tt-time-head, .tt-time-grid { grid-template-columns: 40px repeat(var(--n, 7), 1fr); }
   .tt-agenda-time { flex-basis: 76px; }
   .tt-list { padding: 12px 12px 40vh; }
 }
 @media (max-width: 640px) {
-  .tt-daypanel:not([hidden]) { display: block; }
-  .tt-search { display: inline-flex; }
-  .tt-today { padding: 0 8px; }
+  /* 手機：左緣那條拉抽屜的把手會壓在內容上（月曆的「11」上面），頂列本來就有抽屜鈕，不需要它 */
+  #sidebar-reopen { display: none; }
   .fm-add { padding: 0 10px; }
-  /* 月曆格子只有 50 多 px 寬：有時間的行程只顯示標題（時間在點開的面板跟詳細卡裡），字小一點、留白少一點 */
-  .tt-bar { font-size: 11px; padding: 0 3px; margin: 0 1px; }
-  .tt-bar:not(.is-allday) { padding-left: 2px; }
-  .tt-bar:not(.is-allday) .tt-bar-t { display: none; }
-  .tt-bar:not(.is-allday) i { width: 6px; height: 6px; margin-right: 3px; }
-  .tt-day { padding: 3px 3px; }
   /* 週檢視一欄只有 50 多 px：事件格只放標題（日檢視一欄很寬，時間照舊） */
   .tt-time-grid[style*="--n:7"] .tt-wev { padding: 2px 3px; }
   .tt-time-grid[style*="--n:7"] .tt-wev-t { display: none; }

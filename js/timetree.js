@@ -13,6 +13,14 @@
  * 起迄、標籤顏色（TimeTree 的十色，可改名）、重複（每天／每週／每月／每年＋間隔、結束日）、提醒（可多個；頁面開著
  * 時用瀏覽器通知）、地點、網址、備註、圖片；重複的行程編輯／刪除可以選「只有這一次」或「全部」。匯出／匯入 .ics。
  * blockHTML 把一本行事曆畫成靜態的這個月＋接下來兩週（預覽、PDF、電子書）。
+ *
+ * 手機版（≤900px，isMobile）照 TimeTree 的 APP 重做（使用者拿真正的 TimeTree 截圖來比：「請學習 TimeTree」）：
+ * 桌機的標題列整個藏起來，換成 .tt-mhead（大字「2026年10月 ▾」點了跳日期；右邊只有離開今天時才出現的「今天」跟檢視切換）、
+ * .tt-chips（每一本行事曆是一顆「✓ 名稱」的籤，點了顯示／隱藏，長按是 ⋯ 選單；「＋ 建立行事曆」也在這一列；右邊的 ▾ 把
+ * 這一列展開成多行）、月曆塞滿剩下的高度（永遠六列、沒有直線、日期置中、底下一行農曆、每個行程都是實色小條）、
+ * 右下角圓形 ＋、底下 行程／Keep／搜尋／選單 四個分頁。點一天不是右邊的面板而是從底下滑上來的 .tt-daypanel 面板
+ * （把手可拖，拖到底就收掉），Keep 用同一張面板。左右滑月曆換月（週／日檢視換週／換天）。農曆用 Intl 的 chinese 曆
+ * （lunarText），不另帶表；設定可關。桌機版的畫面沒有動。
  */
 (function (global) {
   'use strict';
@@ -48,6 +56,19 @@
   function fmtTime(d) { return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
   function fmtDate(d, withYear) { return (withYear ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日（' + WEEKDAYS[d.getDay()] + '）'; }
   function isToday(d) { return dkey(d) === dkey(new Date()); }
+  // 農曆：瀏覽器自己的 chinese 曆（Intl），回「9/14」、閏月「閏6/1」；不支援就回空字串，格子裡就沒有那一行
+  let lunarFmt = null, lunarBad = false;
+  function lunarText(d) {
+    if (lunarBad) return '';
+    try {
+      if (!lunarFmt) lunarFmt = new Intl.DateTimeFormat('zh-TW-u-ca-chinese', { month: 'numeric', day: 'numeric' });
+      let m = '', day = '';
+      lunarFmt.formatToParts(d).forEach(function (p) { if (p.type === 'month') m = p.value; else if (p.type === 'day') day = p.value; });
+      return m && day ? m + '/' + day : '';
+    } catch (e) { lunarBad = true; return ''; }
+  }
+  function lunarOn() { return lsGet('ttLunar', '1') === '1'; }
+  function isMobile() { return !!(global.matchMedia && global.matchMedia('(max-width: 900px)').matches); }
   function rangeText(inst) {
     const s = inst.start, e = inst.end;
     if (inst.allDay) { const days = daysBetween(s, e); return days <= 0 ? fmtDate(s, true) + '　全天' : fmtDate(s, true) + ' – ' + fmtDate(e, s.getFullYear() !== e.getFullYear()); }
@@ -236,26 +257,29 @@
   }
 
   // ---------------- 靜態（預覽／PDF／電子書）：這個月的月曆＋接下來兩週 ----------------
-  function monthGridHTML(cals, cursor, ws, cls) {
+  // 永遠六列（TimeTree、Apple 行事曆都是：換月時列高不會跳）。o.lunar 在日期下面多一行農曆（桌機是同一行的小字，
+  // 手機是下一行），o.max 是一週最多疊幾條（手機格子矮，疊三條）。橫條的 top 走 CSS 變數 --tt-bar0／--tt-bar-h，
+  // 手機版的 CSS 才能把第一條往下移、條條矮一點，而桌機跟靜態版（tts）照舊 26＋22n。
+  function monthGridHTML(cals, cursor, ws, cls, o) {
+    o = o || {};
     const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
     const gridStart = startOfWeek(first, ws);
-    const rows = [];
     const insts = [];
     cals.forEach(function (c) { expand(c.cal, c.id, gridStart, addDays(gridStart, 42)).forEach(function (i) { insts.push(i); }); });
-    let h = '<div class="' + cls + '-month"><div class="' + cls + '-wd">' + [0, 1, 2, 3, 4, 5, 6].map(function (i) { const d = (ws + i) % 7; return '<span class="' + (d === 0 ? 'is-sun' : d === 6 ? 'is-sat' : '') + '">' + WEEKDAYS[d] + '</span>'; }).join('') + '</div>';
+    let h = '<div class="' + cls + '-month' + (o.lunar ? ' is-lunar' : '') + '"><div class="' + cls + '-wd">' + [0, 1, 2, 3, 4, 5, 6].map(function (i) { const d = (ws + i) % 7; return '<span class="' + (d === 0 ? 'is-sun' : d === 6 ? 'is-sat' : '') + '">' + (cls === 'tt' ? '<b class="tt-wd-pre">週</b>' : '') + WEEKDAYS[d] + '</span>'; }).join('') + '</div>';
     for (let w = 0; w < 6; w++) {
       const wStart = addDays(gridStart, w * 7), wEnd = addDays(wStart, 6);
-      if (w === 5 && wStart.getMonth() !== cursor.getMonth()) break;
-      const bars = layoutWeek(insts, wStart, wEnd, 4);
+      const bars = layoutWeek(insts, wStart, wEnd, o.max || 4);
       h += '<div class="' + cls + '-week">';
       for (let d = 0; d < 7; d++) {
         const day = addDays(wStart, d);
         const other = day.getMonth() !== cursor.getMonth();
-        h += '<div class="' + cls + '-day' + (other ? ' is-other' : '') + (isToday(day) ? ' is-today' : '') + (day.getDay() === 0 ? ' is-sun' : day.getDay() === 6 ? ' is-sat' : '') + '" data-key="' + dkey(day) + '"><span class="' + cls + '-num">' + day.getDate() + '</span>' + (bars.more[d] ? '<span class="' + cls + '-more" data-key="' + dkey(day) + '">+' + bars.more[d] + '</span>' : '') + '</div>';
+        const lunar = o.lunar ? lunarText(day) : '';
+        h += '<div class="' + cls + '-day' + (other ? ' is-other' : '') + (isToday(day) ? ' is-today' : '') + (day.getDay() === 0 ? ' is-sun' : day.getDay() === 6 ? ' is-sat' : '') + '" data-key="' + dkey(day) + '"><span class="' + cls + '-num">' + day.getDate() + '</span>' + (lunar ? '<span class="' + cls + '-lunar">' + esc(lunar) + '</span>' : '') + (bars.more[d] ? '<span class="' + cls + '-more" data-key="' + dkey(day) + '">+' + bars.more[d] + '</span>' : '') + '</div>';
       }
       bars.placed.forEach(function (b) {
         const inst = b.inst;
-        h += '<div class="' + cls + '-bar' + (inst.allDay || b.span > 1 ? ' is-allday' : '') + (b.cutL ? ' is-cutl' : '') + (b.cutR ? ' is-cutr' : '') + '" data-id="' + esc(inst.ev.id) + '" data-cal="' + esc(inst.calId) + '" data-key="' + inst.key + '" style="left:' + (b.col / 7 * 100) + '%;width:' + (b.span / 7 * 100) + '%;top:' + (26 + b.slot * 22) + 'px;--c:' + colorOf(inst.cal, inst.ev) + '">' + (inst.allDay || b.span > 1 ? '' : '<i></i><span class="' + cls + '-bar-t">' + fmtTime(inst.start) + '</span>') + esc(inst.ev.title || '（無標題）') + '</div>';
+        h += '<div class="' + cls + '-bar' + (inst.allDay || b.span > 1 ? ' is-allday' : '') + (b.cutL ? ' is-cutl' : '') + (b.cutR ? ' is-cutr' : '') + '" data-id="' + esc(inst.ev.id) + '" data-cal="' + esc(inst.calId) + '" data-key="' + inst.key + '" style="left:' + (b.col / 7 * 100) + '%;width:' + (b.span / 7 * 100) + '%;top:calc(var(--tt-bar0, 26px) + ' + b.slot + ' * var(--tt-bar-h, 22px));--c:' + colorOf(inst.cal, inst.ev) + '">' + (inst.allDay || b.span > 1 ? '' : '<i></i><span class="' + cls + '-bar-t">' + fmtTime(inst.start) + '</span>') + esc(inst.ev.title || '（無標題）') + '</div>';
       });
       h += '</div>';
     }
@@ -322,7 +346,8 @@
   }
   document.addEventListener('mousedown', function (e) { if ((popEl && !popEl.contains(e.target)) || (menuEl && !menuEl.contains(e.target))) { if (!e.target.closest('.tt-pop, .tt-menu')) closePop(); } }, true);
 
-  const S = { view: lsGet('ttView', 'month'), cursor: new Date(), selected: null, search: '', hidden: {}, timers: [], dragging: null };
+  // msearch／keepOpen／chipsOpen／sheet 只有手機版會用（搜尋列開著、Keep 面板開著、行事曆籤那列展開、面板的停靠點）
+  const S = { view: lsGet('ttView', 'month'), cursor: new Date(), selected: null, search: '', hidden: {}, timers: [], dragging: null, sideOpen: false, msearch: false, keepOpen: false, chipsOpen: false, sheet: 'half' };
   try { S.hidden = JSON.parse(lsGet('ttHidden', '{}')) || {}; } catch (e) { S.hidden = {}; }
   const cache = new Map();   // noteId → { content, cal }
   let host = null, O = null;
@@ -364,8 +389,19 @@
       '</aside>' +
       '<div class="tt-side-bg" data-act="sideclose"></div>' +
       '<div class="tt-main">' +
+        // 手機版的標題列、行事曆籤、搜尋列（桌機 CSS 全部藏起來；桌機的 .tt-head 在手機藏起來）
+        '<div class="tt-mhead">' +
+          '<button class="tt-mtitle" type="button" data-act="jump" title="跳到…"><span>' + esc(title) + '</span>' + ic('chevron-down') + '</button>' +
+          '<span class="tt-sp"></span>' +
+          (onToday() ? '' : '<button class="tt-tb tt-mtoday" type="button" data-act="today">今天</button>') +
+          '<button class="tt-tb tt-mviews" type="button" data-act="mviews" title="切換檢視">' + ic('arrow-up-down') + '</button>' +
+        '</div>' +
+        '<div class="tt-chips' + (S.chipsOpen ? ' is-open' : '') + '"><div class="tt-chips-scroll">' +
+          cals.map(function (c) { return '<button class="tt-chip-cal' + (S.hidden[c.id] ? '' : ' is-on') + '" type="button" data-vis-toggle="' + esc(c.id) + '" data-cal="' + esc(c.id) + '" style="--c:' + c.cal.color + '"><i>' + ic('check') + '</i><span>' + esc(c.name) + '</span></button>'; }).join('') +
+          '<button class="tt-chip-cal tt-chip-new" type="button" data-act="newcal"><i>' + ic('plus') + '</i><span>建立行事曆</span></button>' +
+        '</div><button class="tt-tb tt-chips-more" type="button" data-act="chips" title="展開">' + ic('chevron-down') + '</button></div>' +
+        '<div class="tt-msearch"' + (S.msearch ? '' : ' hidden') + '><label class="tt-search">' + ic('search') + '<input type="search" placeholder="搜尋行程" value="' + esc(S.search) + '" aria-label="搜尋行程"></label><button class="tt-tb" type="button" data-act="msearch" title="關閉搜尋">' + ic('x') + '</button></div>' +
         '<div class="tt-head">' +
-          '<button class="tt-tb tt-side-btn" type="button" data-act="side" title="行事曆與 Keep">' + ic('calendar') + '</button>' +
           '<button class="tt-tb tt-today" type="button" data-act="today">今天</button>' +
           '<button class="tt-tb tt-nav" type="button" data-act="prev" title="上一個">' + ic('chevron-left') + '</button><button class="tt-tb tt-nav" type="button" data-act="next" title="下一個">' + ic('chevron-right') + '</button>' +
           '<button class="tt-title" type="button" data-act="jump" title="跳到…">' + esc(title) + '</button>' +
@@ -374,24 +410,44 @@
           '<label class="tt-search">' + ic('search') + '<input type="search" placeholder="搜尋行程" value="' + esc(S.search) + '" aria-label="搜尋行程"></label>' +
           '<button class="tt-tb tt-add" type="button" data-act="new"' + (cals.length ? '' : ' disabled') + '>' + ic('plus') + '<span>新增</span></button>' +
         '</div>' +
-        '<div class="tt-body"><div class="tt-view-wrap"></div><aside class="tt-daypanel" hidden></aside></div>' +
+        '<div class="tt-body"><div class="tt-view-wrap"></div><aside class="tt-daypanel" hidden></aside>' +
+          '<button class="tt-fab" type="button" data-act="new" title="新增行程"' + (cals.length ? '' : ' disabled') + '>' + ic('plus') + '</button></div>' +
+        // 手機版底下的分頁（TimeTree 的 行程／選單…）：行程 再點一次是檢視切換，Keep 開面板，搜尋 開搜尋列，選單 拉出左欄
+        '<nav class="tt-tabs">' +
+          '<button class="tt-tab" type="button" data-act="tab-cal" data-tab="cal">' + ic('calendar') + '<span>行程</span></button>' +
+          '<button class="tt-tab" type="button" data-act="tab-keep" data-tab="keep">' + ic('archive') + '<span>Keep</span></button>' +
+          '<button class="tt-tab" type="button" data-act="msearch" data-tab="search">' + ic('search') + '<span>搜尋</span></button>' +
+          '<button class="tt-tab" type="button" data-act="side" data-tab="menu">' + ic('menu') + '<span>選單</span></button>' +
+        '</nav>' +
       '</div>';
     renderView();
     renderDayPanel();
+    syncTabs();
     if (!host.__ttBound) { host.__ttBound = true; bind(); }   // host 不換，監聽綁一次就好（innerHTML 換掉的是裡面）
     scheduleReminders();
+  }
+  // 游標所在的月／週／天有沒有今天（手機版標題列的「今天」只在離開今天時才出現，TimeTree 也是）
+  function onToday() {
+    const n = new Date();
+    if (S.view === 'month') return n.getFullYear() === S.cursor.getFullYear() && n.getMonth() === S.cursor.getMonth();
+    if (S.view === 'week') return dkey(startOfWeek(n, weekStart())) === dkey(startOfWeek(S.cursor, weekStart()));
+    return dkey(n) === dkey(S.cursor);
+  }
+  function syncTabs() {
+    const cur = S.keepOpen ? 'keep' : S.msearch ? 'search' : S.sideOpen ? 'menu' : 'cal';
+    host.querySelectorAll('.tt-tab').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === cur); });
   }
   function keepsHTML(cals) {
     const items = [];
     cals.forEach(function (c) { if (S.hidden[c.id]) return; c.cal.events.forEach(function (ev) { if (ev.keep) items.push({ c: c, ev: ev }); }); });
-    if (!items.length) return '<div class="tt-side-empty">把還沒決定日期的行程先放這裡，之後拖到月曆上</div>';
+    if (!items.length) return '<div class="tt-side-empty">把還沒決定日期的行程先放這裡，' + (isMobile() ? '點開來就能排日期' : '之後拖到月曆上') + '</div>';
     return items.map(function (x) { return '<div class="tt-keep" draggable="true" data-id="' + esc(x.ev.id) + '" data-cal="' + esc(x.c.id) + '"><i style="background:' + colorOf(x.c.cal, x.ev) + '"></i><span>' + esc(x.ev.title || '（無標題）') + '</span></div>'; }).join('');
   }
   function renderView() {
     const wrapEl = host.querySelector('.tt-view-wrap');
     const cals = visibleCals();
     if (S.search.trim()) { wrapEl.className = 'tt-view-wrap is-list'; wrapEl.innerHTML = '<div class="tt-list"><div class="tt-list-t">搜尋「' + esc(S.search.trim()) + '」</div>' + agendaHTML(cals, addDays(startOfDay(new Date()), -365), 730, 'tt', S.search.trim()) + '</div>'; return; }
-    if (S.view === 'month') { wrapEl.className = 'tt-view-wrap is-month'; wrapEl.innerHTML = monthGridHTML(cals, S.cursor, weekStart(), 'tt'); return; }
+    if (S.view === 'month') { wrapEl.className = 'tt-view-wrap is-month'; wrapEl.innerHTML = monthGridHTML(cals, S.cursor, weekStart(), 'tt', { lunar: lunarOn(), max: isMobile() ? 3 : 4 }); return; }
     if (S.view === 'list') { wrapEl.className = 'tt-view-wrap is-list'; wrapEl.innerHTML = '<div class="tt-list"><div class="tt-list-t">接下來 60 天</div>' + agendaHTML(cals, startOfDay(S.cursor), 60, 'tt') + '</div>'; return; }
     wrapEl.className = 'tt-view-wrap is-time';
     wrapEl.innerHTML = timeGridHTML(cals, S.view === 'day' ? startOfDay(S.cursor) : startOfWeek(S.cursor, weekStart()), S.view === 'day' ? 1 : 7);
@@ -441,24 +497,83 @@
     }
     return h + '</div></div>';
   }
+  // 桌機：點一天，右邊的面板列當天行程。手機：同一個元素變成從底下滑上來的面板（CSS .is-sheet），多一條把手，
+  // Keep 也用它（S.keepOpen）。
   function renderDayPanel() {
     const panel = host.querySelector('.tt-daypanel');
     if (!panel) return;
-    if (!S.selected || S.view === 'list') { panel.hidden = true; return; }
-    const day = parseLocal(S.selected);
+    const mob = isMobile();
+    const keep = mob && S.keepOpen;
+    if (!keep && (!S.selected || S.view === 'list')) { panel.hidden = true; host.classList.remove('is-sheet'); return; }
     panel.hidden = false;
+    host.classList.toggle('is-sheet', mob);
+    if (mob) host.style.setProperty('--tt-sheet', sheetPx(S.sheet) + 'px');
+    const handle = mob ? '<div class="tt-dp-handle" title="拖曳調整高度"><i></i></div>' : '';
     const cals = visibleCals();
-    panel.innerHTML = '<div class="tt-dp-head"><div class="tt-dp-date' + (isToday(day) ? ' is-today' : '') + '"><b>' + day.getDate() + '</b><span>' + (day.getMonth() + 1) + '月・週' + WEEKDAYS[day.getDay()] + '</span></div><button class="tt-tb" type="button" data-act="dp-add" title="在這一天新增">' + ic('plus') + '</button><button class="tt-tb" type="button" data-act="dp-close" title="關閉">' + ic('x') + '</button></div><div class="tt-dp-list">' + agendaHTML(cals, day, 1, 'tt').replace(/<div class="tt-agenda-day[^"]*">.*?<\/div>/, '') + '</div>';
+    if (keep) {
+      panel.innerHTML = handle + '<div class="tt-dp-head"><div class="tt-dp-date"><b class="tt-dp-keep">' + ic('archive') + '</b><span><strong>Keep</strong>　還沒排日期的行程</span></div><button class="tt-tb" type="button" data-act="newkeep" title="新增 Keep"' + (cals.length ? '' : ' disabled') + '>' + ic('plus') + '</button><button class="tt-tb" type="button" data-act="keepclose" title="關閉">' + ic('x') + '</button></div><div class="tt-dp-list tt-keeps">' + keepsHTML(calsOf()) + '</div>';
+      return;
+    }
+    const day = parseLocal(S.selected);
+    panel.innerHTML = handle + '<div class="tt-dp-head"><div class="tt-dp-date' + (isToday(day) ? ' is-today' : '') + '"><b>' + day.getDate() + '</b><span>' + (day.getMonth() + 1) + '月・週' + WEEKDAYS[day.getDay()] + (lunarOn() && lunarText(day) ? '・農曆 ' + esc(lunarText(day)) : '') + '</span></div><button class="tt-tb" type="button" data-act="dp-add" title="在這一天新增">' + ic('plus') + '</button><button class="tt-tb" type="button" data-act="dp-close" title="關閉">' + ic('x') + '</button></div><div class="tt-dp-list">' + agendaHTML(cals, day, 1, 'tt').replace(/<div class="tt-agenda-day[^"]*">.*?<\/div>/, '') + '</div>';
+  }
+  // 手機版面板的高度：half／full 兩個停靠點，寫成 host 上的 --tt-sheet（桌機 CSS 不讀）
+  const SHEET = { half: 0.46, full: 0.88 };
+  function sheetPx(k) { const body = host && host.querySelector('.tt-body'); const max = body ? body.clientHeight : 0; return Math.round(max * (SHEET[k] || SHEET.half)); }
+  function sheetClose() { S.selected = null; S.keepOpen = false; renderDayPanel(); syncTabs(); }
+  function bindSheet() {
+    let drag = null;
+    host.addEventListener('pointerdown', function (e) {
+      const h = e.target.closest('.tt-dp-handle'); if (!h || !isMobile()) return;
+      const panel = host.querySelector('.tt-daypanel');
+      drag = { y: e.clientY, h: panel.getBoundingClientRect().height, moved: false, panel: panel, handle: h };
+      panel.classList.remove('is-anim');
+      try { h.setPointerCapture(e.pointerId); } catch (err) { /* */ }
+      e.preventDefault();
+    });
+    host.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      const dy = drag.y - e.clientY;
+      if (!drag.moved && Math.abs(dy) < 4) return;
+      drag.moved = true;
+      host.style.setProperty('--tt-sheet', Math.max(40, Math.min(drag.h + dy, sheetPx('full'))) + 'px');
+    });
+    const end = function () {
+      if (!drag) return;
+      const d = drag; drag = null;
+      d.panel.classList.add('is-anim');
+      if (!d.moved) { S.sheet = S.sheet === 'full' ? 'half' : 'full'; host.style.setProperty('--tt-sheet', sheetPx(S.sheet) + 'px'); return; }
+      const cur = d.panel.getBoundingClientRect().height;
+      if (cur < sheetPx('half') * 0.6) { sheetClose(); return; }   // 拖到很矮就是要收掉
+      S.sheet = Math.abs(cur - sheetPx('full')) < Math.abs(cur - sheetPx('half')) ? 'full' : 'half';
+      host.style.setProperty('--tt-sheet', sheetPx(S.sheet) + 'px');
+    };
+    host.addEventListener('pointerup', end);
+    host.addEventListener('pointercancel', end);
+    // 左右滑換月／週／天（只在月曆／時間軸上，面板跟清單不算；要明顯是橫向的才算，免得跟捲動打架）
+    let sw = null;
+    host.addEventListener('touchstart', function (e) { const t = e.touches && e.touches[0]; if (!t || !e.target.closest('.tt-view-wrap') || e.target.closest('.tt-list')) { sw = null; return; } sw = { x: t.clientX, y: t.clientY }; }, { passive: true });
+    host.addEventListener('touchend', function (e) {
+      if (!sw) return; const s = sw; sw = null;
+      const t = e.changedTouches && e.changedTouches[0]; if (!t) return;
+      const dx = t.clientX - s.x, dy = t.clientY - s.y;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      act(dx < 0 ? 'next' : 'prev');
+    }, { passive: true });
   }
 
   // ---- 事件綁定 ----
   function bind() {
     host.addEventListener('click', onClick);
-    host.addEventListener('contextmenu', function (e) { const bar = e.target.closest('[data-id][data-cal]'); if (bar) { e.preventDefault(); eventMenu(bar, e.clientX, e.clientY); } });
+    host.addEventListener('contextmenu', function (e) {
+      const bar = e.target.closest('[data-id][data-cal]'); if (bar) { e.preventDefault(); eventMenu(bar, e.clientX, e.clientY); return; }
+      const chip = e.target.closest('.tt-chip-cal[data-cal]'); if (chip) { e.preventDefault(); calMenu(chip.getAttribute('data-cal'), chip); }   // 手機長按一顆籤＝那本行事曆的 ⋯
+    });
+    bindSheet();
     let st = null;
     host.addEventListener('input', function (e) { const search = e.target.closest('.tt-search input'); if (!search) return; clearTimeout(st); st = setTimeout(function () { S.search = search.value; renderView(); renderDayPanel(); }, 200); });
     host.addEventListener('keydown', function (e) { const search = e.target.closest('.tt-search input'); if (!search) return; e.stopPropagation(); if (e.key === 'Escape') { search.value = ''; S.search = ''; renderView(); } });
-    host.addEventListener('change', function (e) { const v = e.target.closest('[data-vis]'); if (v) { const id = v.getAttribute('data-vis'); if (v.checked) delete S.hidden[id]; else S.hidden[id] = 1; lsSet('ttHidden', JSON.stringify(S.hidden)); render(host, O); } });
+    host.addEventListener('change', function (e) { const v = e.target.closest('[data-vis]'); if (v) setVisible(v.getAttribute('data-vis'), v.checked); });
     host.addEventListener('mousedown', onDown);
     host.addEventListener('dblclick', function (e) {
       const cell = e.target.closest('.tt-day, .tt-time-col, .tt-allday-cell');
@@ -487,13 +602,14 @@
     if (host.closest('[hidden]')) return;   // 行事曆的頁面沒開著（在別的畫面）就不要接快速鍵
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable)) return;
     if (document.querySelector('.modal-overlay')) return;
-    if (e.key === 'Escape') { if (popEl || menuEl) { closePop(); } else if (S.sideOpen) { act('sideclose'); } else if (S.selected) { S.selected = null; renderDayPanel(); } return; }
+    if (e.key === 'Escape') { if (popEl || menuEl) { closePop(); } else if (S.sideOpen) { act('sideclose'); } else if (S.selected || S.keepOpen) { sheetClose(); } else if (S.msearch) { act('msearch'); } return; }
     if (e.key === 't' || e.key === 'T') { act('today'); }
     else if (e.key === 'ArrowLeft') act('prev'); else if (e.key === 'ArrowRight') act('next');
     else if (e.key === 'm' || e.key === 'M') setView('month'); else if (e.key === 'w' || e.key === 'W') setView('week'); else if (e.key === 'd' || e.key === 'D') setView('day'); else if (e.key === 'l' || e.key === 'L') setView('list');
     else if (e.key === 'n' || e.key === 'N') act('new');
   }
-  function setView(v) { S.view = v; lsSet('ttView', v); render(host, O); }
+  function setView(v) { S.view = v; S.keepOpen = false; lsSet('ttView', v); render(host, O); }
+  function setVisible(id, on) { if (on) delete S.hidden[id]; else S.hidden[id] = 1; lsSet('ttHidden', JSON.stringify(S.hidden)); render(host, O); }
   function act(a) {
     if (a === 'today') { S.cursor = new Date(); render(host, O); }
     else if (a === 'prev' || a === 'next') { const n = a === 'prev' ? -1 : 1; S.cursor = S.view === 'month' ? addMonths(S.cursor, n) : S.view === 'week' ? addDays(S.cursor, 7 * n) : S.view === 'day' ? addDays(S.cursor, n) : addDays(S.cursor, 60 * n); render(host, O); }
@@ -501,22 +617,37 @@
     else if (a === 'newkeep') openEditor(null, null, { keep: true });
     else if (a === 'newcal') newCalendarDialog();
     else if (a === 'settings') settingsPop(host.querySelector('[data-act="settings"]'));
-    else if (a === 'side') { S.sideOpen = !S.sideOpen; host.classList.toggle('is-side-open', S.sideOpen); }
-    else if (a === 'sideclose') { S.sideOpen = false; host.classList.remove('is-side-open'); }
-    else if (a === 'jump') jumpPop(host.querySelector('.tt-title'));
+    else if (a === 'side') { S.sideOpen = !S.sideOpen; host.classList.toggle('is-side-open', S.sideOpen); syncTabs(); }
+    else if (a === 'sideclose') { S.sideOpen = false; host.classList.remove('is-side-open'); syncTabs(); }
+    else if (a === 'jump') jumpPop(host.querySelector(isMobile() ? '.tt-mtitle' : '.tt-title'));
     else if (a === 'dp-add') openEditor(null, null, { date: S.selected });
-    else if (a === 'dp-close') { S.selected = null; renderDayPanel(); }
+    else if (a === 'dp-close' || a === 'keepclose') sheetClose();
+    // ---- 手機版 ----
+    else if (a === 'mviews' || a === 'tab-cal') {
+      if (a === 'tab-cal' && (S.keepOpen || S.msearch)) { S.keepOpen = false; S.msearch = false; S.search = ''; render(host, O); return; }   // 從 Keep／搜尋回到行程
+      const anchor = host.querySelector(a === 'tab-cal' ? '.tt-tab[data-tab="cal"]' : '.tt-mviews'); const r = anchor.getBoundingClientRect();
+      menuAt(r.left, a === 'tab-cal' ? r.top - 4 - 4 * 34 : r.bottom + 4, [['month', '月曆', false, false, S.view === 'month'], ['week', '週曆', false, false, S.view === 'week'], ['day', '日曆', false, false, S.view === 'day'], ['list', '行程清單', false, false, S.view === 'list']], setView);
+    }
+    else if (a === 'tab-keep') { S.keepOpen = !S.keepOpen; S.msearch = false; S.selected = null; S.sheet = 'half'; render(host, O); }
+    else if (a === 'msearch') {
+      S.msearch = !S.msearch; S.keepOpen = false;
+      if (!S.msearch) S.search = '';
+      render(host, O);
+      if (S.msearch) { const inp = host.querySelector('.tt-msearch input'); if (inp) setTimeout(function () { inp.focus(); }, 0); }
+    }
+    else if (a === 'chips') { S.chipsOpen = !S.chipsOpen; host.querySelector('.tt-chips').classList.toggle('is-open', S.chipsOpen); }
   }
   function onClick(e) {
     const vb = e.target.closest('[data-view]'); if (vb) { setView(vb.getAttribute('data-view')); return; }
+    const vt = e.target.closest('[data-vis-toggle]'); if (vt) { const id = vt.getAttribute('data-vis-toggle'); setVisible(id, !!S.hidden[id]); return; }
     const ab = e.target.closest('[data-act]'); if (ab && host.contains(ab)) { act(ab.getAttribute('data-act')); return; }
     const cm = e.target.closest('[data-calmenu]'); if (cm) { calMenu(cm.getAttribute('data-calmenu'), cm); return; }
     if (S.dragging && S.dragging.moved) return;
     const bar = e.target.closest('[data-id][data-cal]');
     if (bar && !bar.classList.contains('tt-keep')) { showDetail(bar); return; }
     const keep = e.target.closest('.tt-keep'); if (keep) { const hit = findEvent(keep.getAttribute('data-cal'), keep.getAttribute('data-id')); if (hit) openEditor(hit.ev, hit.c, {}); return; }
-    const more = e.target.closest('.tt-more'); if (more) { S.selected = more.getAttribute('data-key'); renderDayPanel(); return; }
-    const day = e.target.closest('.tt-day, .tt-time-day'); if (day) { const key = day.getAttribute('data-key'); if (S.view === 'month') { S.selected = S.selected === key ? null : key; renderDayPanel(); } else { S.cursor = parseLocal(key); setView('day'); } return; }
+    const more = e.target.closest('.tt-more'); if (more) { S.selected = more.getAttribute('data-key'); S.keepOpen = false; renderDayPanel(); syncTabs(); return; }
+    const day = e.target.closest('.tt-day, .tt-time-day'); if (day) { const key = day.getAttribute('data-key'); if (S.view === 'month') { S.selected = S.selected === key ? null : key; S.keepOpen = false; renderDayPanel(); syncTabs(); } else { S.cursor = parseLocal(key); setView('day'); } return; }
   }
   function calMenu(calId, anchor) {
     const c = calById(calId); if (!c) return;
@@ -573,10 +704,12 @@
     const notify = lsGet('ttNotify', '0') === '1';
     popEl.innerHTML = '<div class="tt-pop-label">設定</div>' +
       '<label class="tt-set-row"><span>一週的第一天</span><select class="tt-input" data-s="ws"><option value="0"' + (weekStart() === 0 ? ' selected' : '') + '>星期日</option><option value="1"' + (weekStart() === 1 ? ' selected' : '') + '>星期一</option></select></label>' +
+      '<label class="tt-set-row"><span>月曆顯示農曆</span><input type="checkbox" data-s="lunar"' + (lunarOn() ? ' checked' : '') + '></label>' +
       '<label class="tt-set-row"><span>提醒通知（頁面開著時）</span><input type="checkbox" data-s="notify"' + (notify ? ' checked' : '') + '></label>' +
       '<div class="tt-set-hint">快速鍵：T 今天、← → 前後、M／W／D／L 切換檢視、N 新增、雙擊日子新增。</div>';
     const r = anchor.getBoundingClientRect(); placeFixed(popEl, r.left, r.top - popEl.offsetHeight - 4);
     popEl.querySelector('[data-s="ws"]').addEventListener('change', function (e) { lsSet('ttWeekStart', e.target.value); render(host, O); });
+    popEl.querySelector('[data-s="lunar"]').addEventListener('change', function (e) { lsSet('ttLunar', e.target.checked ? '1' : '0'); renderView(); renderDayPanel(); });
     popEl.querySelector('[data-s="notify"]').addEventListener('change', function (e) {
       if (e.target.checked) { if (global.Notification && Notification.permission !== 'granted') Notification.requestPermission().then(function (p) { if (p !== 'granted') { e.target.checked = false; lsSet('ttNotify', '0'); toast('瀏覽器沒有允許通知'); } else { lsSet('ttNotify', '1'); scheduleReminders(); } }); else { lsSet('ttNotify', '1'); scheduleReminders(); } }
       else { lsSet('ttNotify', '0'); scheduleReminders(); }
@@ -859,7 +992,7 @@
       });
     });
   }
-  function teardown() { S.timers.forEach(clearTimeout); S.timers = []; S.sideOpen = false; closePop(); document.removeEventListener('keydown', onKey); }
+  function teardown() { S.timers.forEach(clearTimeout); S.timers = []; S.sideOpen = false; S.msearch = false; S.keepOpen = false; S.chipsOpen = false; closePop(); document.removeEventListener('keydown', onKey); }
 
   global.TimeTree = { isNote: isNote, generate: generate, parse: parse, serialize: serialize, payloadOf: payloadOf, wrap: wrap, blockHTML: blockHTML, render: render, closePop: closePop, teardown: teardown, expand: expand, toICS: toICS, fromICS: fromICS, cleanEvent: cleanEvent, LABELS: LABELS, CAL_COLORS: CAL_COLORS, state: S };
 })(window);
