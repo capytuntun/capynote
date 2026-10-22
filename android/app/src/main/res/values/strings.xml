@@ -25,6 +25,7 @@
     <string name="download_started">開始下載：%1$s</string>
     <string name="download_saved">已存到「下載」：%1$s</string>
     <string name="download_failed">下載失敗：%1$s</string>
+    <string name="no_folder_picker">手機上沒有可以選資料夾的檔案 APP</string>
     <string name="no_app_for_link">手機上沒有能開啟這個連結的 APP</string>
     <string name="print_preparing">正在排版，稍後會跳出列印／另存 PDF…</string>
     <string name="version_fmt">capynote Android %1$s</string>

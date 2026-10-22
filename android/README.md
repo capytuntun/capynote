@@ -11,6 +11,7 @@
 | 第一次開啟 | `SetupActivity`：輸入伺服器網址，`GET /api/health` 測通了才存 |
 | 登入狀態 | WebView 的 `CookieManager` 持久化，關掉 APP 再開還是登入中 |
 | 上傳／貼圖／匯入 .md | `onShowFileChooser` → 系統檔案選取器（支援多選） |
+| 匯入整個資料夾 | Android 沒有 `webkitdirectory` 選取器：`inject.js` 攔下那個 input 的點擊，`FolderPick.kt` 開系統的「選擇資料夾」、走完整棵樹，每個檔案以同源假網址 `/__capynote/pick/…` 串流給網頁做成 `File`（含 `webkitRelativePath`），網站的匯入流程原封不動 |
 | 下載（備份 zip、檔案管理、檔案筆記） | `DownloadListener` → 系統 `DownloadManager`，帶登入 cookie 串流 |
 | 匯出（CSV／PNG／SVG／docx／電子書 HTML） | 網站用的是 `<a download>` + `blob:`，`res/raw/inject.js` 攔下來轉 base64，`Downloads.kt` 寫進「下載」 |
 | PDF 列印 | `js/pdf.js` 偵測到 `window.capynoteAndroid` 時把排版前的 HTML 交給 `Printer.kt`，用隱藏 WebView 跑同一套 paged.js，再開系統列印對話框（選「儲存為 PDF」） |
@@ -56,8 +57,8 @@ keyPassword=…
 ## 限制
 
 - 需要網路：沒有離線模式，離線時顯示「連不上伺服器」。
-- 「匯入整個資料夾」（`webkitdirectory`）Android 沒有對應的選取器，請用「匯入 .md 檔案」多選。
+- 「匯入整個資料夾」最多 2000 個檔案、單檔 200 MB（超過的略過並提示）；`.` 開頭的隱藏資料夾不匯。
 - 行事曆提醒跟網站一樣只在頁面開著時發，APP 不在前景就不會通知。
 - 返回鍵走網站自己的 `history.back()`（回到首頁再按一次才離開），不是 WebView 的 `canGoBack()`：Chromium 會把沒有使用者手勢的 `pushState`（開啟時自動打開上次的筆記）當成可跳過的歷史，`canGoBack()` 會回 false。
-- 自簽憑證的 https 連不上（WebView 只信任系統憑證）；請用 Let's Encrypt／cloudflared，或區網用 http。
+- https 信任系統憑證與**使用者自己安裝的 CA**（設定 → 安全性與隱私權 → 更多安全性設定 → 安裝憑證 → CA 憑證）：自簽憑證的伺服器把它的 CA 裝到手機上就能連；沒有 CA 的純自簽伺服器憑證還是連不上，請用 Let's Encrypt／cloudflared，或區網用 http。
 - minSdk 29（Android 10）。

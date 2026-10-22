@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 允許 http://（明文）：自架在區網、還沒接 TLS 時也能用；設定頁會對 http 網址顯示警告。
-     正式環境請一律用 https（cloudflared / 反向代理）。 -->
+     正式環境請一律用 https（cloudflared / 反向代理）。
+     trust-anchors 除了系統憑證也信任使用者自己安裝的 CA（設定 → 安全性 → 安裝憑證 → CA 憑證），
+     自簽憑證的伺服器把 CA 裝到手機上就能用 https 連。 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
 </network-security-config>

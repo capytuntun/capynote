@@ -46,6 +46,7 @@ class MainActivity : AppCompatActivity() {
 
     lateinit var downloads: Downloads
     lateinit var printer: Printer
+    lateinit var folderPick: FolderPick
 
     private var loadedOrigin: String? = null      // 目前 WebView 載的是哪台伺服器
     private var mainFrameFailed = false
@@ -55,6 +56,29 @@ class MainActivity : AppCompatActivity() {
     private val chooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data))
         fileCallback = null
+    }
+
+    // 「匯入整個資料夾」：系統的選資料夾畫面；選好了在背景把整棵樹走完，再把清單交給網頁（FolderPick.kt）
+    private val folderChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val tree = r.data?.data
+        if (r.resultCode != RESULT_OK || tree == null) { folderPicked(null); return@registerForActivityResult }
+        Thread {
+            val json = runCatching { folderPick.toJson(folderPick.walk(tree)) }.getOrNull()
+            runOnUiThread { folderPicked(json) }
+        }.start()
+    }
+
+    private fun folderPicked(json: String?) {
+        web.evaluateJavascript("window.__capyFolderPicked && window.__capyFolderPicked(${json ?: "null"})", null)
+    }
+
+    fun pickFolder() {
+        try {
+            folderChooser.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.no_folder_picker, Toast.LENGTH_SHORT).show()
+            folderPicked(null)
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -70,6 +94,7 @@ class MainActivity : AppCompatActivity() {
 
         downloads = Downloads(applicationContext) { web.settings.userAgentString }
         printer = Printer(this)
+        folderPick = FolderPick(contentResolver)
 
         // 邊到邊（targetSdk 35 強制）：自己把狀態列／導覽列／鍵盤的 inset 變成 padding，
         // 底色跟網站主題同步（applyTheme），所以狀態列看起來就是網站頂列的延伸。
@@ -139,6 +164,13 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                 mainFrameFailed = false
+            }
+
+            // 匯入資料夾時每個檔案是一個同源假網址，內容由 FolderPick 串流（見 FolderPick.kt）
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                val u = request.url
+                if (!Prefs.sameOrigin(u.toString(), loadedOrigin)) return null
+                return folderPick.intercept(u.path)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {

@@ -41,6 +41,18 @@ class Bridge(private val a: MainActivity) {
         a.downloads.saveBase64(name, mime, base64)
     }
 
+    /** 「匯入整個資料夾」：inject.js 攔下 <input webkitdirectory> 的點擊改叫這裡，開系統的選資料夾畫面。 */
+    @JavascriptInterface
+    fun pickFolder() {
+        a.runOnUiThread { a.pickFolder() }
+    }
+
+    /** 網頁把那次選取的檔案都讀完了，假網址可以作廢。 */
+    @JavascriptInterface
+    fun pickDone(token: String) {
+        a.folderPick.release(token)
+    }
+
     /** js/pdf.js 的「列印／另存 PDF」：把排版前的 HTML 交給原生端，走系統列印對話框。 */
     @JavascriptInterface
     fun printHtml(html: String, extraCss: String?, title: String?) {

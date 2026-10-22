@@ -8,6 +8,10 @@
 //    不能 fetch(blob:)——網站的 CSP 是 connect-src 'self'，blob: 會被擋（模擬器上就是這樣失敗的）——
 //    所以改攔 URL.createObjectURL，把 Blob 物件本身記住，點下載時直接用 FileReader 讀。
 //    http(s) 的 <a download>（檔案管理的「下載」）交給 DownloadListener 串流，只先把檔名記起來。
+// 3. 匯入整個資料夾：<input webkitdirectory> 在 Android 沒有選取器，攔下它的點擊改叫原生的
+//    「選擇資料夾」（Bridge.pickFolder）；原生端走完整棵樹後呼叫 __capyFolderPicked，這裡把每個
+//    檔案從同源假網址 /__capynote/pick/<token>/<序號> fetch 回來做成 File（補上 webkitRelativePath），
+//    塞進那個 input 再發 change——網站的 importMarkdownFiles 完全不用知道這些。
 (function () {
   if (window.__capyAndroid) return;
   window.__capyAndroid = 1;
@@ -98,4 +102,52 @@
     fetch(href).then(function (r) { return r.blob(); }).then(function (bl) { save(b, bl, name); })
       .catch(function () { b.toast('下載失敗'); });
   }, true);
+
+  // ---- 匯入整個資料夾 ----
+  var dirInput = null;
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || t.tagName !== 'INPUT' || t.type !== 'file' || !t.hasAttribute('webkitdirectory')) return;
+    var b = B();
+    if (!b || typeof b.pickFolder !== 'function') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    dirInput = t;
+    try { b.pickFolder(); } catch (err) { dirInput = null; }
+  }, true);
+
+  window.__capyFolderPicked = function (info) {
+    var input = dirInput; dirInput = null;
+    var b = B();
+    if (!info || !input || !b) return;
+    var files = info.files || [];
+    if (!files.length) { b.toast('這個資料夾裡沒有檔案'); return; }
+    if (files.length > 20) b.toast('讀取 ' + files.length + ' 個檔案中…');
+    var base = location.origin + '/__capynote/pick/' + info.token + '/';
+    var out = new Array(files.length), failed = 0, next = 0;
+    function one() {
+      if (next >= files.length) return Promise.resolve();
+      var f = files[next++];
+      return fetch(base + f.i, { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); })
+        .then(function (blob) {
+          var file = new File([blob], f.name, { type: f.type || blob.type || '' });
+          try { Object.defineProperty(file, 'webkitRelativePath', { value: f.path }); } catch (e) { /* */ }
+          out[f.i] = file;
+        })
+        .catch(function () { failed++; })
+        .then(one);
+    }
+    // 四條一起抓；順序由 out[f.i] 保證
+    Promise.all([one(), one(), one(), one()]).then(function () {
+      try { b.pickDone(info.token); } catch (e) { /* */ }
+      var dt = new DataTransfer();
+      out.forEach(function (f) { if (f) dt.items.add(f); });
+      if (!dt.files.length) { b.toast('讀不到資料夾裡的檔案'); return; }
+      var extra = (failed ? '，' + failed + ' 個讀取失敗' : '') + (info.skipped ? '，' + info.skipped + ' 個超過 200 MB 略過' : '');
+      if (extra) b.toast('已讀取 ' + dt.files.length + ' 個檔案' + extra);
+      try { input.files = dt.files; } catch (e) { b.toast('匯入失敗：' + e.message); return; }
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  };
 })();
