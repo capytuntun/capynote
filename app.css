@@ -7005,6 +7005,60 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
   :root[data-theme="dark"] .tt-tab.on, :root[data-theme="dark"] .tt-tab.on .ic-svg { color: #5fdcc3; }
   /* 詳細卡在手機是貼底的卡片 */
   .tt-detail { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; max-width: none; border-radius: 14px; }
+  /* ---- 新增／編輯行程：TimeTree 的整頁畫面（.tt-med，openEditor 的 mobileEditorHTML）----
+     ← 保存 / 大標題 / 一列一項（左邊綠色圖示、右邊開關或 ›）/ ＋ 後面的籤點了才展開那一段 */
+  .tt-med-overlay { padding: 0; background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; align-items: stretch; justify-content: stretch; }
+  .modal.tt-med { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; display: flex; flex-direction: column; animation: tt-sheet-up .2s var(--ease-out); }
+  .tt-med-top { display: flex; align-items: center; flex: 0 0 auto; height: 56px; padding: 0 8px 0 4px; }
+  .tt-med-back, .tt-med-save { display: inline-flex; align-items: center; height: 44px; padding: 0 14px; border: 0; background: transparent; color: #2ec4a6; font: inherit; font-size: var(--fs-base); font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .tt-med-back .ic-svg { width: 24px; height: 24px; }
+  .tt-med-body { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; padding: 0 0 48px; gap: 0; }
+  .tt-med .tt-ed-title { flex: 0 0 auto; height: 64px; margin: 4px 20px 8px; padding: 0; border: 0; font-size: 28px; font-weight: 700; }
+  .tt-med-row { position: relative; display: flex; align-items: center; gap: 12px; flex: 0 0 auto; min-height: 60px; padding: 0 16px 0 18px; border-top: 1px solid var(--border); font-size: 17px; }
+  .tt-med-row > .ic-svg:first-child { width: 22px; height: 22px; flex: 0 0 24px; color: #2ec4a6; }
+  .tt-med-pick > .ic-svg:last-child { width: 18px; height: 18px; flex: 0 0 18px; color: var(--text-dim); }
+  .tt-med-lbl { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tt-med-sw { width: 40px; height: 30px; border-radius: 8px; flex: 0 0 auto; }
+  .tt-med .tt-lbl-name { font-size: inherit; color: inherit; margin: 0; }
+  .tt-med-hidden { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+  .tt-med-dt { padding-left: 54px; min-height: 56px; }
+  .tt-med-dtext { flex: 1 1 auto; }
+  .tt-med-ttext { flex: 0 0 auto; }
+  .tt-med-native { position: absolute; top: 0; bottom: 0; left: 54px; right: 130px; margin: 0; opacity: 0; font-size: 16px; }
+  .tt-med-native-t { left: auto; right: 0; width: 130px; }
+  .tt-med-dim .tt-med-lbl, .tt-med-val { color: var(--text-dim); }
+  .tt-med .tt-ed-scope { background: var(--accent-weak); font-size: var(--fs-sm); gap: 10px; flex-wrap: wrap; }
+  .tt-switch { position: relative; display: inline-block; width: 50px; height: 30px; flex: 0 0 auto; }
+  .tt-switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+  .tt-switch i { position: absolute; inset: 0; border-radius: 15px; background: var(--border-strong); transition: background .15s; }
+  .tt-switch i::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .15s; }
+  .tt-switch input:checked + i { background: #2ec4a6; }
+  .tt-switch input:checked + i::after { transform: translateX(20px); }
+  .tt-med-labels { display: block; flex: 0 0 auto; padding: 4px 0; border-top: 1px solid var(--border); background: var(--bg-2); }
+  .tt-med-labels[hidden] { display: none; }
+  .tt-med .tt-med-labels .tt-lbl { display: flex; align-items: center; gap: 12px; width: 100%; height: 44px; padding: 0 18px 0 54px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--text); font: inherit; font-size: 16px; text-align: left; }
+  .tt-med .tt-med-labels .tt-lbl i { width: 20px; height: 20px; border-radius: 50%; background: var(--c); flex: 0 0 auto; }
+  .tt-med .tt-med-labels .tt-lbl .tt-lbl-txt { flex: 1 1 auto; }
+  .tt-med .tt-med-labels .tt-lbl.on::after { content: '✓'; color: #2ec4a6; font-weight: 700; }
+  .tt-med-remrow .tt-med-x { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-right: -10px; border: 0; background: transparent; color: var(--text); cursor: pointer; }
+  .tt-med-remrow .tt-med-x .ic-svg { width: 20px; height: 20px; }
+  .tt-med-add { align-items: flex-start; padding-top: 14px; padding-bottom: 12px; }
+  .tt-med-add > .ic-svg:first-child { margin-top: 9px; }
+  .tt-med-chips { display: flex; flex-wrap: wrap; gap: 10px; flex: 1 1 auto; }
+  .tt-med-chip { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px 0 14px; border: 0; border-radius: 20px; background: var(--bg-3); color: var(--text); font: inherit; font-size: 15px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .tt-med-chip .ic-svg { width: 18px; height: 18px; color: #2ec4a6; }
+  .tt-med-chip[hidden] { display: none; }
+  .tt-med-sec { flex: 0 0 auto; padding: 12px 16px 14px 18px; border-top: 1px solid var(--border); }
+  .tt-med-sec[hidden] { display: none; }
+  .tt-med-sec-t { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 15px; color: var(--text-dim); }
+  .tt-med-sec-t .ic-svg { width: 22px; height: 22px; color: #2ec4a6; }
+  .tt-med-sec .tt-input { height: 42px; font-size: 16px; }
+  .tt-med-sec textarea.tt-input { height: auto; }
+  .tt-med-sec .tt-ed-row { margin: 6px 0; }
+  .tt-med-sec .tt-ed-day span { width: 36px; height: 36px; }
+  .tt-med-sec .tt-rem { height: 32px; font-size: var(--fs-sm); }
+  .tt-med-del { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 0 0 auto; width: calc(100% - 32px); height: 46px; margin: 28px 16px 0; border: 1px solid var(--danger); border-radius: 10px; background: transparent; color: var(--danger); font: inherit; font-size: 16px; cursor: pointer; }
+  .tt-med-del .ic-svg { width: 18px; height: 18px; }
   /* 時間軸／清單 */
   .tt-time-head, .tt-time-grid { grid-template-columns: 40px repeat(var(--n, 7), 1fr); }
   .tt-agenda-time { flex-basis: 76px; }

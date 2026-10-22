@@ -68,6 +68,14 @@
     } catch (e) { lunarBad = true; return ''; }
   }
   function lunarOn() { return lsGet('ttLunar', '1') === '1'; }
+  // 手機版編輯畫面的日期寫法（TimeTree 的）：2026年10月23日週五、上午7:00、農曆九月十四
+  function fmtLong(d) { return d ? d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日週' + WEEKDAYS[d.getDay()] : ''; }
+  function fmt12(hm) { const p = String(hm || '').split(':'); const h = parseInt(p[0], 10); if (isNaN(h)) return ''; return (h < 12 ? '上午' : '下午') + (h % 12 || 12) + ':' + (p[1] || '00'); }
+  function cnDay(n) { const D = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十']; if (n <= 10) return '初' + D[n]; if (n < 20) return '十' + D[n - 10]; if (n === 20) return '二十'; if (n < 30) return '廿' + D[n - 20]; return '三十'; }
+  function lunarLong(d) {
+    if (!d || lunarBad) return '';
+    try { let m = '', day = 0; new Intl.DateTimeFormat('zh-TW-u-ca-chinese', { month: 'long', day: 'numeric' }).formatToParts(d).forEach(function (p) { if (p.type === 'month') m = p.value; else if (p.type === 'day') day = parseInt(p.value, 10); }); return m && day ? m + cnDay(day) : ''; } catch (e) { return ''; }
+  }
   function isMobile() { return !!(global.matchMedia && global.matchMedia('(max-width: 900px)').matches); }
   function rangeText(inst) {
     const s = inst.start, e = inst.end;
@@ -809,7 +817,8 @@
     const sd = base.start ? base.start.slice(0, 10) : dkey(new Date()), ed = base.end ? base.end.slice(0, 10) : sd;
     const stm = base.start && base.start.length > 10 ? base.start.slice(11) : '09:00', etm = base.end && base.end.length > 10 ? base.end.slice(11) : '10:00';
     const rep = base.repeat || { freq: '', interval: 1 };
-    ov.innerHTML = '<div class="modal tt-dialog tt-editor" role="dialog" aria-modal="true">' +
+    const mob = isMobile();
+    ov.innerHTML = mob ? mobileEditorHTML() : '<div class="modal tt-dialog tt-editor" role="dialog" aria-modal="true">' +
       '<div class="tt-ed-head"><input class="tt-ed-title" type="text" maxlength="300" placeholder="標題" value="' + esc(base.title) + '" data-f="title"><button class="tt-tb" type="button" data-e="close" title="關閉">' + ic('x') + '</button></div>' +
       '<div class="tt-dialog-body">' +
       (ev && ev.repeat && o.instKey ? '<div class="tt-ed-row tt-ed-scope"><span>套用到</span><label><input type="radio" name="tt-scope" value="one" checked> 只有這一次</label><label><input type="radio" name="tt-scope" value="all"> 所有重複的行程</label></div>' : '') +
@@ -827,6 +836,7 @@
       '<div class="tt-ed-row tt-ed-notes"><span class="tt-ed-l">' + ic('file-text') + '</span><textarea class="tt-input" rows="3" maxlength="5000" placeholder="備註" data-f="notes">' + esc(base.notes) + '</textarea></div>' +
       '<div class="tt-ed-row"><span class="tt-ed-l">' + ic('image') + '</span><div class="tt-ed-imgs">' + base.images.map(function (id) { return '<span class="tt-ed-img" data-img="' + esc(id) + '"><img src="/api/images/' + esc(id) + '" alt=""><button type="button" data-rmimg="' + esc(id) + '" title="移除">' + ic('x') + '</button></span>'; }).join('') + (O.onUpload ? '<button type="button" class="tt-ed-addimg" data-e="img">' + ic('plus') + ' 圖片</button>' : '') + '</div></div>' +
       '</div><div class="modal-actions">' + (isNew ? '' : '<button class="btn tt-ed-del" type="button" data-e="del">刪除</button>') + '<span class="tt-sp"></span><button class="btn" type="button" data-e="close">取消</button><button class="btn btn-primary" type="button" data-e="save">儲存</button></div></div>';
+    if (mob) ov.classList.add('tt-med-overlay');
     document.body.appendChild(ov);
     const q = function (sel) { return ov.querySelector(sel); };
     const f = function (name) { return q('[data-f="' + name + '"]'); };
@@ -846,7 +856,7 @@
       const t = e.target;
       if (t.getAttribute('data-f') === 'sd') { const s = parseLocal(f('sd').value), en = parseLocal(f('ed').value); if (s && (!en || en < s)) f('ed').value = f('sd').value; }
       if (t.getAttribute('data-f') === 'st' && f('sd').value === f('ed').value && f('et').value <= f('st').value) { const s = parseLocal(f('sd').value + 'T' + f('st').value); if (s) f('et').value = fmtTime(new Date(s.getTime() + 3600000)); }
-      if (t.getAttribute('data-f') === 'cal') { curCal = calById(t.value) || curCal; label = null; ov.querySelectorAll('.tt-lbl').forEach(function (b, i) { const l = curCal.cal.labels[i - 1]; if (i === 0) { b.style.setProperty('--c', curCal.cal.color); b.classList.add('on'); } else { b.style.setProperty('--c', l.color); b.title = l.name; b.classList.remove('on'); } }); q('.tt-lbl-name').textContent = ''; }
+      if (t.getAttribute('data-f') === 'cal') { curCal = calById(t.value) || curCal; label = null; ov.querySelectorAll('.tt-lbl').forEach(function (b, i) { const l = curCal.cal.labels[i - 1]; const txt = b.querySelector('.tt-lbl-txt'); if (i === 0) { b.style.setProperty('--c', curCal.cal.color); b.classList.add('on'); } else { b.style.setProperty('--c', l.color); b.title = l.name; if (txt) txt.textContent = l.name; b.classList.remove('on'); } }); q('.tt-lbl-name').textContent = ''; }
       refreshUI();
     });
     ov.addEventListener('click', function (e) {
@@ -917,6 +927,78 @@
       target.cal.events.push(clean);
       if (!isNew && target !== c) save(c);
       save(target);
+    }
+    // ---- 手機版：TimeTree 的新增畫面（使用者拿截圖來：「新增東西要設計成這樣」）----
+    // 整頁：← 保存 / 大標題 / 一列一項（行事曆、全天、起、迄、農曆、儲存為備忘錄＝Keep、標籤）/ 已選的提醒一列一個 /
+    // ＋ 後面是「重複、提醒、地點、網址、備註、圖片」的籤，點了那一段才展開。欄位的 data-f 跟桌機版一樣，存檔走同一條。
+    // 日期／時間是原生 <input> 透明蓋在字上：字照 TimeTree 寫（2026年10月23日週五、上午7:00），點下去是系統的選擇器。
+    function mobileEditorHTML() {
+      const sdD = parseLocal(sd), edD = parseLocal(ed);
+      const lbl0 = labelOf(c.cal, base);
+      const sec = function (key, icon, title, inner) { return '<div class="tt-med-sec" data-msec="' + key + '"' + (shown[key] ? '' : ' hidden') + '><div class="tt-med-sec-t">' + ic(icon) + '<span>' + title + '</span></div>' + inner + '</div>'; };
+      const shown = { rem: base.reminders.length > 0, repeat: !!rep.freq, location: !!base.location, url: !!base.url, notes: !!base.notes, images: base.images.length > 0 };
+      const chips = [['repeat', '重複', 'repeat'], ['rem', '提醒', 'bell'], ['location', '地點', 'map-pin'], ['url', '網址', 'link'], ['notes', '備註', 'file-text']].concat(O.onUpload ? [['images', '圖片', 'paperclip']] : []);
+      return '<div class="modal tt-dialog tt-editor tt-med" role="dialog" aria-modal="true">' +
+        '<div class="tt-med-top"><button class="tt-med-back" type="button" data-e="close" title="返回">' + ic('arrow-left') + '</button><span class="tt-sp"></span><button class="tt-med-save" type="button" data-e="save">保存</button></div>' +
+        '<div class="tt-dialog-body tt-med-body">' +
+        '<input class="tt-ed-title" type="text" maxlength="300" placeholder="標題" value="' + esc(base.title) + '" data-f="title">' +
+        (ev && ev.repeat && o.instKey ? '<div class="tt-med-row tt-ed-scope"><span>套用到</span><label><input type="radio" name="tt-scope" value="one" checked> 只有這一次</label><label><input type="radio" name="tt-scope" value="all"> 所有重複的行程</label></div>' : '') +
+        '<div class="tt-med-row tt-med-pick" data-mpick="cal">' + ic('calendar') + '<span class="tt-med-lbl tt-med-calname">' + esc(c.name) + '</span><i class="tt-med-sw tt-med-calsw" style="background:' + c.cal.color + '"></i>' + ic('chevron-right') +
+          '<select class="tt-input tt-med-hidden" data-f="cal" tabindex="-1">' + cals.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === c.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="tt-med-row">' + ic('clock') + '<span class="tt-med-lbl">全天</span><label class="tt-switch tt-ed-allday"><input type="checkbox" data-f="allDay"' + (base.allDay ? ' checked' : '') + '><i></i></label></div>' +
+        '<div class="tt-ed-dates">' +
+          '<div class="tt-med-row tt-med-dt">' + ic('arrow-right-to-line') + '<span class="tt-med-dtext" data-dtext="sd">' + fmtLong(sdD) + '</span><span class="tt-ed-time tt-med-ttext" data-ttext="st">' + fmt12(stm) + '</span><input class="tt-med-native" type="date" data-f="sd" value="' + sd + '" aria-label="開始日期"><input class="tt-med-native tt-ed-time tt-med-native-t" type="time" data-f="st" value="' + stm + '" aria-label="開始時間"></div>' +
+          '<div class="tt-med-row tt-med-dt">' + ic('arrow-left-to-line') + '<span class="tt-med-dtext" data-dtext="ed">' + fmtLong(edD) + '</span><span class="tt-ed-time tt-med-ttext" data-ttext="et">' + fmt12(etm) + '</span><input class="tt-med-native" type="date" data-f="ed" value="' + ed + '" aria-label="結束日期"><input class="tt-med-native tt-ed-time tt-med-native-t" type="time" data-f="et" value="' + etm + '" aria-label="結束時間"></div>' +
+          '<div class="tt-med-row tt-med-dim">' + ic('moon') + '<span class="tt-med-lbl">農曆</span><span class="tt-med-val" data-lunar>' + esc(lunarLong(sdD)) + '</span></div>' +
+        '</div>' +
+        '<div class="tt-med-row">' + ic('pin') + '<span class="tt-med-lbl">儲存為備忘錄（Keep，先不排日期）</span><label class="tt-switch"><input type="checkbox" data-f="keep"' + (base.keep ? ' checked' : '') + '><i></i></label></div>' +
+        '<div class="tt-med-row tt-med-pick" data-mpick="label">' + ic('tag') + '<span class="tt-med-lbl tt-lbl-name">' + esc(lbl0 ? lbl0.name : '不用標籤') + '</span><i class="tt-med-sw tt-med-lblsw" style="background:' + (lbl0 ? lbl0.color : c.cal.color) + '"></i>' + ic('chevron-right') + '</div>' +
+        '<div class="tt-ed-labels tt-med-labels" hidden>' +
+          '<button type="button" class="tt-lbl' + (!base.label ? ' on' : '') + '" data-label="" style="--c:' + c.cal.color + '"><i></i><span class="tt-lbl-txt">不用標籤（用行事曆顏色）</span></button>' +
+          c.cal.labels.map(function (l) { return '<button type="button" class="tt-lbl' + (base.label === l.id ? ' on' : '') + '" data-label="' + l.id + '" style="--c:' + l.color + '"><i></i><span class="tt-lbl-txt">' + esc(l.name) + '</span></button>'; }).join('') +
+        '</div>' +
+        '<div class="tt-med-remrows"></div>' +
+        '<div class="tt-med-row tt-med-add">' + ic('plus') + '<div class="tt-med-chips">' + chips.map(function (ch) { return '<button type="button" class="tt-med-chip" data-madd="' + ch[0] + '"' + (shown[ch[0]] ? ' hidden' : '') + '>' + ic(ch[2]) + '<span>' + ch[1] + '</span></button>'; }).join('') + '</div></div>' +
+        sec('repeat', 'repeat', '重複',
+          '<div class="tt-ed-row"><select class="tt-input" data-f="freq"><option value="">不重複</option><option value="daily"' + (rep.freq === 'daily' ? ' selected' : '') + '>每天</option><option value="weekly"' + (rep.freq === 'weekly' ? ' selected' : '') + '>每週</option><option value="monthly"' + (rep.freq === 'monthly' ? ' selected' : '') + '>每月</option><option value="yearly"' + (rep.freq === 'yearly' ? ' selected' : '') + '>每年</option></select></div>' +
+          '<div class="tt-ed-row"><span class="tt-ed-rep"><span>每</span><input class="tt-input tt-ed-num" type="number" min="1" max="99" data-f="interval" value="' + (rep.interval || 1) + '"><span class="tt-ed-unit"></span><span>　到</span><input class="tt-input" type="date" data-f="until" value="' + (rep.until || '') + '"></span></div>' +
+          '<div class="tt-ed-row tt-ed-bydays">' + [0, 1, 2, 3, 4, 5, 6].map(function (d) { return '<label class="tt-ed-day"><input type="checkbox" data-day="' + d + '"' + (rep.byDay && rep.byDay.indexOf(d) >= 0 ? ' checked' : '') + '><span>' + WEEKDAYS[d] + '</span></label>'; }).join('') + '</div>') +
+        sec('rem', 'bell', '提醒', '<div class="tt-ed-rem">' + REMINDERS.map(function (r) { return '<button type="button" class="tt-rem' + (base.reminders.indexOf(r[0]) >= 0 ? ' on' : '') + '" data-rem="' + r[0] + '">' + r[1] + '</button>'; }).join('') + '</div>') +
+        sec('location', 'map-pin', '地點', '<input class="tt-input" type="text" maxlength="300" placeholder="地點" data-f="location" value="' + esc(base.location) + '">') +
+        sec('url', 'link', '網址', '<input class="tt-input" type="url" maxlength="1000" placeholder="https://" data-f="url" value="' + esc(base.url) + '">') +
+        sec('notes', 'file-text', '備註', '<textarea class="tt-input" rows="4" maxlength="5000" placeholder="備註" data-f="notes">' + esc(base.notes) + '</textarea>') +
+        sec('images', 'paperclip', '圖片', '<div class="tt-ed-imgs">' + base.images.map(function (id) { return '<span class="tt-ed-img" data-img="' + esc(id) + '"><img src="/api/images/' + esc(id) + '" alt=""><button type="button" data-rmimg="' + esc(id) + '" title="移除">' + ic('x') + '</button></span>'; }).join('') + (O.onUpload ? '<button type="button" class="tt-ed-addimg" data-e="img">' + ic('plus') + ' 圖片</button>' : '') + '</div>') +
+        (isNew ? '' : '<button class="tt-med-del" type="button" data-e="del">' + ic('trash') + '<span>刪除這個行程</span></button>') +
+        '</div></div>';
+    }
+    if (mob) {
+      const syncDates = function () {
+        ov.querySelectorAll('[data-dtext]').forEach(function (s) { s.textContent = fmtLong(parseLocal(f(s.getAttribute('data-dtext')).value)); });
+        ov.querySelectorAll('[data-ttext]').forEach(function (s) { s.textContent = fmt12(f(s.getAttribute('data-ttext')).value); });
+        const lu = q('[data-lunar]'); if (lu) lu.textContent = lunarLong(parseLocal(f('sd').value));
+      };
+      const syncRems = function () {
+        ov.querySelectorAll('.tt-rem').forEach(function (b) { b.classList.toggle('on', reminders.indexOf(+b.getAttribute('data-rem')) >= 0); });
+        q('.tt-med-remrows').innerHTML = reminders.slice().sort(function (a, b2) { return a - b2; }).map(function (m) { return '<div class="tt-med-row tt-med-remrow">' + ic('bell') + '<span class="tt-med-lbl">' + esc(reminderText(m)) + '通知</span><button type="button" class="tt-med-x" data-rem="' + m + '" title="移除">' + ic('x') + '</button></div>'; }).join('');
+      };
+      const syncCal = function () { q('.tt-med-calname').textContent = curCal.name; q('.tt-med-calsw').style.background = curCal.cal.color; q('.tt-med-lblsw').style.background = curCal.cal.color; q('.tt-lbl-name').textContent = '不用標籤'; };
+      // 這兩個監聽排在上面那兩個之後，所以日期的自動補齊、標籤的切換都已經做完了
+      ov.addEventListener('change', function (e) { const n = e.target.getAttribute('data-f'); if (n === 'sd' || n === 'ed' || n === 'st' || n === 'et') syncDates(); if (n === 'cal') syncCal(); });
+      ov.addEventListener('click', function (e) {
+        const pk = e.target.closest('[data-mpick]');
+        if (pk) {
+          if (pk.getAttribute('data-mpick') === 'label') { const p = q('.tt-med-labels'); p.hidden = !p.hidden; return; }
+          const r = pk.getBoundingClientRect();
+          menuAt(r.left + 48, r.bottom - 8, cals.map(function (x) { return [x.id, x.name, false, false, x.id === curCal.id]; }), function (id) { f('cal').value = id; f('cal').dispatchEvent(new Event('change', { bubbles: true })); });
+          return;
+        }
+        const lb = e.target.closest('.tt-med-labels [data-label]');
+        if (lb) { const l = labelOf(curCal.cal, { label: label }); q('.tt-lbl-name').textContent = l ? l.name : '不用標籤'; q('.tt-med-lblsw').style.background = l ? l.color : curCal.cal.color; q('.tt-med-labels').hidden = true; return; }
+        const ad = e.target.closest('[data-madd]');
+        if (ad) { const k = ad.getAttribute('data-madd'); ad.hidden = true; const s = q('[data-msec="' + k + '"]'); s.hidden = false; const inp = s.querySelector('input:not([type=checkbox]):not([type=number]), textarea, select'); if (inp && k !== 'rem' && k !== 'images') setTimeout(function () { inp.focus(); }, 0); return; }
+        if (e.target.closest('[data-rem]')) syncRems();
+      });
+      syncRems();
     }
     setTimeout(function () { f('title').focus(); }, 0);
   }
