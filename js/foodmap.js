@@ -178,6 +178,10 @@
   let host = null, O = null, built = null;
   // Leaflet 的東西，建一次、跨 render 留著（重畫清單時地圖不重載圖磚）
   let leaf = null, markerLayer = null, markers = {}, fitted = false, pickBanner = null, seeding = false, mapRO = null;
+  // 從 #note/<地圖 id> 進來時要把那張地圖的地點放滿畫面（reveal）；地圖還沒建就先記著，建好第一次畫針再 fit
+  let revealFit = false;
+  // 台灣本島（含綠島、蘭嶼）的經緯度範圍：圖資中心一打開就把它放在畫面正中間（2026-10-24「圖資中心一打開，要把台灣放在中間」）
+  const TW_BOUNDS = [[21.88, 120.0], [25.32, 122.05]];
 
   function mapsOf() {
     return (O.maps || []).map(function (n) {
@@ -336,7 +340,7 @@
   function ensureMap() {
     const box = built.querySelector('.fm-map'), empty = built.querySelector('.fm-map-empty');
     if (!global.L) { empty.hidden = false; empty.textContent = '地圖程式庫（vendor/leaflet）沒有載入'; return; }
-    if (leaf) { setTimeout(function () { if (leaf) leaf.invalidateSize(); }, 0); return; }
+    if (leaf) { revealFit = false; setTimeout(function () { if (leaf) leaf.invalidateSize(); }, 0); return; }
     leaf = L.map(box, { zoomControl: true, attributionControl: false, worldCopyJump: true });
     // referrerPolicy：整個站是 Referrer-Policy: no-referrer，圖磚請求就一個 Referer 都沒帶，OSM 的圖磚伺服器把這種
     // 瀏覽器請求當成「不守使用規範的 app」回 403（整張地圖都是 Access blocked 的格子——正式站上發生過）。
@@ -354,7 +358,11 @@
       }
     });
     markerLayer = L.layerGroup().addTo(leaf);
-    leaf.setView([25.04, 121.53], 12);   // 第一眼：台北；有店就會 fitBounds 蓋過去
+    // 第一眼：整個台灣放在中間。之前是台北 12 級、再在第一次畫針時 fitBounds 到所有地點——店都在台北就只看得到台北，
+    // 使用者要的是一打開先看到整個台灣。有地點也不自動縮過去（fitted 先設成 true）；全部顯示、只顯示這層、匯入、
+    // 定位完成、從 #note/<地圖> 連結進來（revealFit）才會 fit 到地點。
+    fitTaiwan();
+    fitted = !revealFit; revealFit = false;
     leaf.on('click', function (e) {
       if (S.picking) { finishPick(e.latlng); return; }
       S.selected = null; paintList();
@@ -464,6 +472,13 @@
     });
     Object.keys(markers).forEach(function (k) { if (!keep[k]) { markerLayer.removeLayer(markers[k]); delete markers[k]; } });
     if (!fitted && rows.length) { fitted = true; fitAll(rows); }
+  }
+  function fitTaiwan() {
+    if (!leaf) return;
+    const sz = leaf.getSize();
+    // 容器還沒有大小（不會發生在正常開頁，保險）：先用固定縮放放在台灣中心，等第一次 resize 再 fit
+    if (sz.x > 0 && sz.y > 0) leaf.fitBounds(TW_BOUNDS, { padding: [12, 12] });
+    else { leaf.setView([23.6, 121.0], 7); leaf.once("resize", function () { fitTaiwan(); }); }
   }
   function fitAll(rows) {
     rows = rows || filtered().filter(function (x) { return x.p.lat !== null; });
@@ -1060,12 +1075,12 @@
     document.querySelectorAll('.fm-ov').forEach(function (o) { o.remove(); });
     if (leaf) { try { leaf.remove(); } catch (e) { /* */ } }
     if (mapRO) { try { mapRO.disconnect(); } catch (e) { /* */ } mapRO = null; }
-    leaf = null; markerLayer = null; markers = {}; fitted = false; built = null; S.sheet = 'half'; S.sheetBefore = null;
+    leaf = null; markerLayer = null; markers = {}; fitted = false; revealFit = false; built = null; S.sheet = 'half'; S.sheetBefore = null;
   }
   // 從別處進來（#note/<地圖 id>）：把那張地圖顯示出來、全部放進畫面
   function reveal(mapId) {
     if (S.hidden[mapId]) { delete S.hidden[mapId]; lsSet('fmHidden', JSON.stringify(S.hidden)); }
-    fitted = false;
+    fitted = false; revealFit = true;
   }
 
   global.FoodMap = { isNote: isNote, generate: generate, parseImport: parseImport, cityFromAddress: cityFromAddress, KINDS: KINDS, DEFAULT_LAYERS: DEFAULT_LAYERS, parse: parse, serialize: serialize, payloadOf: payloadOf, wrap: wrap, blockHTML: blockHTML, render: render, teardown: teardown, closePop: closePop, reveal: reveal, state: S, COLORS: COLORS };
