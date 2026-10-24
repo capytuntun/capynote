@@ -172,7 +172,7 @@
     openSide(false); e.stopPropagation();
   }, true);
 
-  const S = { search: '', tags: [], visit: 'all', city: '', hidden: {}, selected: null, picking: null, locating: null, sheet: 'half', sheetBefore: null };
+  const S = { search: '', tags: [], visit: 'all', city: '', hidden: {}, selected: null, popupFor: null, picking: null, locating: null, sheet: 'half', sheetBefore: null };
   try { S.hidden = JSON.parse(lsGet('fmHidden', '{}')) || {}; } catch (e) { S.hidden = {}; }
   const cache = new Map();   // noteId → { content, map }
   let host = null, O = null, built = null;
@@ -180,6 +180,12 @@
   let leaf = null, markerLayer = null, markers = {}, fitted = false, pickBanner = null, seeding = false, mapRO = null;
   // 從 #note/<地圖 id> 進來時要把那張地圖的地點放滿畫面（reveal）；地圖還沒建就先記著，建好第一次畫針再 fit
   let revealFit = false;
+  // 手機上 600 個地點原本：開頁 3.8 秒、點一個針 4.6 秒（清單 600 列整個重畫）、拖地圖 2.4 秒（600 個 DOM 針）。
+  // 所以清單一次只畫 LIST_PAGE 列、捲到底再補，選取只換 class；圖釘只畫視野內的，拉遠了疊成一團（clusterRows）。
+  const LIST_PAGE = 40;
+  let listRows = [], listShown = 0, listIO = null, listSentinel = null;
+  const CLUSTER_PX = 56, CLUSTER_MAX_ZOOM = 16;   // 螢幕上不到 56px 的針疊成一團；16 級以上每家店都是自己的針
+  let groups = null, groupsKey = '', clusters = {};
   // 台灣本島（含綠島、蘭嶼）的經緯度範圍：圖資中心一打開就把它放在畫面正中間（2026-10-24「圖資中心一打開，要把台灣放在中間」）
   const TW_BOUNDS = [[21.88, 120.0], [25.32, 122.05]];
 
@@ -238,7 +244,7 @@
       container.appendChild(built);
       bind(built);
       bindSheet(built);
-      leaf = null; markers = {}; fitted = false;
+      leaf = null; markers = {}; clusters = {}; groups = null; fitted = false;
     }
     // 第一次：一個圖層都沒有就把預設的兩層建起來（美食地圖、步道地圖），一層一層建，render 連著被叫也只建一次
     if (!(O.maps || []).length && O.onCreate && !seeding) {
@@ -326,14 +332,47 @@
   function paintList() {
     const list = built.querySelector('.fm-list');
     const rows = filtered();
+    if (listSentinel && listIO) listIO.unobserve(listSentinel);   // 舊哨兵隨 innerHTML 一起丟掉，別讓 observer 一直記著它
+    listRows = rows; listShown = 0; listSentinel = null;
     if (!rows.length) {
       const total = allPlaces().length;
       list.innerHTML = '<div class="fm-empty">' + ic('map-pin') + '<p>' + (total ? '沒有符合的地點，換個關鍵字或清掉篩選。' : mapsOf().length ? '還沒有地點。按右上「' + addLabel() + '」，填名稱跟地址就會出現在地圖上。' : '先新增一個圖層。') + '</p></div>';
       fitSheet();
       return;
     }
-    list.innerHTML = rows.map(placeRow).join('');
+    list.innerHTML = '';
+    appendRows(LIST_PAGE);
     fitSheet();
+  }
+  // 再補 n 列；還有沒畫的就在最後留一個哨兵（一顆「顯示更多」），捲到它（IntersectionObserver）就再補一批
+  function appendRows(n) {
+    const list = built && built.querySelector('.fm-list');
+    if (!list) return;
+    const end = Math.min(listRows.length, listShown + n);
+    if (end <= listShown) return;
+    if (listSentinel) { if (listIO) listIO.unobserve(listSentinel); listSentinel.remove(); listSentinel = null; }
+    list.insertAdjacentHTML('beforeend', listRows.slice(listShown, end).map(placeRow).join(''));
+    listShown = end;
+    if (listShown < listRows.length) {
+      listSentinel = el('div', 'fm-more', '<button type="button" class="tt-btn">還有 ' + (listRows.length - listShown) + ' 個，顯示更多</button>');
+      listSentinel.querySelector('button').addEventListener('click', function () { appendRows(LIST_PAGE); });
+      list.appendChild(listSentinel);
+      if (global.IntersectionObserver) {
+        if (!listIO) listIO = new IntersectionObserver(function (es) { if (es.some(function (x) { return x.isIntersecting; })) appendRows(LIST_PAGE); });
+        listIO.observe(listSentinel);
+      }
+    }
+  }
+  // 讓某一列畫出來（選到的那家還在沒畫的那段裡）；太後面（超過六批）就算了，針跟小卡已經在地圖上
+  function ensureRow(id) {
+    const i = listRows.findIndex(function (x) { return x.p.id === id; });
+    if (i >= listShown && i - listShown < LIST_PAGE * 6) appendRows(i - listShown + LIST_PAGE);
+  }
+  // 只換選取的樣式，不重畫清單
+  function markSelected() {
+    if (!built) return;
+    built.querySelectorAll('.fm-row.is-sel').forEach(function (r) { if (r.getAttribute('data-id') !== S.selected) r.classList.remove('is-sel'); });
+    if (S.selected) { ensureRow(S.selected); const r = built.querySelector('.fm-row[data-id="' + S.selected + '"]'); if (r) r.classList.add('is-sel'); }
   }
 
   // ---------------- Leaflet ----------------
@@ -365,9 +404,10 @@
     fitted = !revealFit; revealFit = false;
     leaf.on('click', function (e) {
       if (S.picking) { finishPick(e.latlng); return; }
-      S.selected = null; paintList();
+      S.selected = null; markSelected(); paintMarkers();
     });
     leaf.on('popupclose', function () { /* 保持選取，只收小卡 */ });
+    leaf.on('moveend', function () { syncMarkers(); });
     if (global.ResizeObserver) {
       mapRO = new ResizeObserver(function () { if (leaf) leaf.invalidateSize(); });
       mapRO.observe(built.querySelector('.fm-map-wrap'));
@@ -396,8 +436,11 @@
   function fitSheet() { if (built && isMobile() && S.sheet === 'half') setSheet(sheetSnapPx('half'), true); }
   function setSheet(px, animate) {
     if (!built) return;
-    built.querySelector('.fm-list-wrap').classList.toggle('is-anim', !!animate);
-    built.style.setProperty('--fm-sheet', Math.max(SHEET.peek, Math.min(px, sheetSnapPx('full'))) + 'px');
+    // 寫在 .fm-list-wrap 自己身上（app.css 把 --fm-sheet 註冊成 inherits: false）。原本寫在 .fm-page 上：一個會繼承的
+    // 自訂屬性每動一次，整頁幾萬個節點都重算樣式——手機拖面板一次量到 25 秒的 style recalc。
+    const wrap = built.querySelector('.fm-list-wrap');
+    wrap.classList.toggle('is-anim', !!animate);
+    wrap.style.setProperty('--fm-sheet', Math.max(SHEET.peek, Math.min(px, sheetSnapPx('full'))) + 'px');
   }
   function sheetSnap(k) { S.sheet = k; setSheet(sheetSnapPx(k), true); }
   // 點了清單的一列要看得到地圖飛過去：面板全開就先收到一半
@@ -448,30 +491,118 @@
   function paintMarkers() {
     if (!leaf) return;
     const rows = filtered().filter(function (x) { return x.p.lat !== null; });
-    const keep = {};
-    rows.forEach(function (x) {
-      const p = x.p, key = p.id;
-      keep[key] = 1;
-      const sel = S.selected === p.id;
-      let mk = markers[key];
-      const sig = [p.lat, p.lng, x.m.map.color, x.m.map.icon, sel ? 1 : 0, p.name, p.address, p.tags.join(','), p.source, p.note, p.rating, p.visited ? 1 : 0, p.images.join(','), x.m.name].join('|');
-      if (mk && mk._fmSig === sig) return;
-      if (!mk) {
-        mk = L.marker([p.lat, p.lng], { icon: pinIcon(x.m.map.color, sel, x.m.map.icon), title: p.name, riseOnHover: true, keyboard: false });
-        mk.on('click', function () { S.selected = p.id; paintList(); paintMarkers(); scrollRowIntoView(p.id); });
-        mk.bindPopup('', { maxWidth: 300, className: 'fm-popup', autoPanPadding: [30, 30] });
-        markerLayer.addLayer(mk);
-        markers[key] = mk;
-      } else {
-        mk.setLatLng([p.lat, p.lng]);
-        mk.setIcon(pinIcon(x.m.map.color, sel, x.m.map.icon));
-      }
-      mk.setPopupContent(popupHTML(x));
-      mk.setZIndexOffset(sel ? 1000 : 0);
-      mk._fmSig = sig;
+    syncMarkers(rows);
+    if (!fitted && rows.length) { fitted = true; fitAll(rows); }
+  }
+  // 依目前的縮放把地點疊成一團團（greedy：離某一團的錨點不到 CLUSTER_PX 就併進去；同一個縮放級數結果固定，
+  // 拖地圖時團不會跳來跳去），選取中的那家永遠自己一顆針。用 key 快取：資料、篩選、縮放、選取都沒變就不重算。
+  function clusterRows(rows, z) {
+    const key = z + '|' + (S.selected || '') + '|' + rows.map(function (x) { return x.p.id + ',' + x.p.lat + ',' + x.p.lng + ',' + x.m.map.color; }).join(';');
+    if (groups && groupsKey === key) {
+      // 幾何沒變就沿用分組，但 items 要換成這一次的列物件：編輯過的店是新的物件（圖片、名稱…變了），
+      // 留著舊的會讓 syncPin 以為什麼都沒變、小卡內容停在編輯前（t-popup.js 抓到的）
+      const byId = {};
+      rows.forEach(function (x) { byId[x.p.id] = x; });
+      groups.forEach(function (g) { g.items = g.items.map(function (x) { return byId[x.p.id] || x; }); });
+      return groups;
+    }
+    const out = [];
+    if (z >= CLUSTER_MAX_ZOOM) {
+      rows.forEach(function (x) { out.push({ items: [x], lat: x.p.lat, lng: x.p.lng }); });
+    } else {
+      const cells = new Map(), r2 = CLUSTER_PX * CLUSTER_PX;
+      rows.forEach(function (x) {
+        if (x.p.id === S.selected) { out.push({ items: [x], lat: x.p.lat, lng: x.p.lng }); return; }
+        const q = leaf.project([x.p.lat, x.p.lng], z), cx = Math.floor(q.x / CLUSTER_PX), cy = Math.floor(q.y / CLUSTER_PX);
+        let best = null, bd = r2;
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const c = cells.get((cx + dx) + ',' + (cy + dy));
+            if (!c) continue;
+            c.forEach(function (g) { const d = (g.x - q.x) * (g.x - q.x) + (g.y - q.y) * (g.y - q.y); if (d < bd) { bd = d; best = g; } });
+          }
+        }
+        if (best) { best.items.push(x); return; }
+        const g = { x: q.x, y: q.y, items: [x] }, k = cx + ',' + cy;
+        if (!cells.has(k)) cells.set(k, []);
+        cells.get(k).push(g); out.push(g);
+      });
+      out.forEach(function (g) {
+        if (g.lat !== undefined) return;
+        let la = 0, ln = 0;
+        g.items.forEach(function (x) { la += x.p.lat; ln += x.p.lng; });
+        g.lat = la / g.items.length; g.lng = ln / g.items.length;
+      });
+    }
+    groups = out; groupsKey = key;
+    return out;
+  }
+  // 只把視野（外擴半個畫面）內的團跟針放到地圖上；拖完、縮放完（moveend）再同步一次。
+  // 600 個 DOM 針一起在地圖上，手機拖一下要兩秒多、每次縮放都重畫 600 個 box-shadow。
+  function syncMarkers(rows) {
+    if (!leaf) return;
+    if (rows === undefined) rows = filtered().filter(function (x) { return x.p.lat !== null; });
+    const gs = clusterRows(rows, leaf.getZoom());
+    const view = leaf.getBounds().pad(0.5);
+    const keep = {}, keepC = {};
+    gs.forEach(function (g, i) {
+      if (!view.contains([g.lat, g.lng])) return;
+      if (g.items.length === 1) { keep[g.items[0].p.id] = 1; syncPin(g.items[0]); return; }
+      const key = 'c' + i;
+      keepC[key] = 1; syncCluster(key, g);
     });
     Object.keys(markers).forEach(function (k) { if (!keep[k]) { markerLayer.removeLayer(markers[k]); delete markers[k]; } });
-    if (!fitted && rows.length) { fitted = true; fitAll(rows); }
+    Object.keys(clusters).forEach(function (k) { if (!keepC[k]) { markerLayer.removeLayer(clusters[k]); delete clusters[k]; } });
+    // focusPlace 飛過去之前那顆針可能還疊在一團裡；到了、針畫出來了才開小卡
+    if (S.popupFor && markers[S.popupFor]) { const id = S.popupFor; S.popupFor = null; markers[id].openPopup(); }
+  }
+  function syncPin(x) {
+    const p = x.p, key = p.id, sel = S.selected === p.id;
+    let mk = markers[key];
+    const sig = [p.lat, p.lng, x.m.map.color, x.m.map.icon, sel ? 1 : 0, p.name, p.address, p.tags.join(','), p.source, p.note, p.rating, p.visited ? 1 : 0, p.images.join(','), x.m.name].join('|');
+    if (mk && mk._fmSig === sig) return;
+    if (!mk) {
+      mk = L.marker([p.lat, p.lng], { icon: pinIcon(x.m.map.color, sel, x.m.map.icon), title: p.name, riseOnHover: true, keyboard: false });
+      mk.on('click', function () { S.selected = p.id; markSelected(); paintMarkers(); scrollRowIntoView(p.id); });
+      mk.bindPopup('', { maxWidth: 300, className: 'fm-popup', autoPanPadding: [30, 30] });
+      markerLayer.addLayer(mk);
+      markers[key] = mk;
+    } else {
+      mk.setLatLng([p.lat, p.lng]);
+      mk.setIcon(pinIcon(x.m.map.color, sel, x.m.map.icon));
+    }
+    mk.setPopupContent(popupHTML(x));
+    mk.setZIndexOffset(sel ? 1000 : 0);
+    mk._fmSig = sig;
+  }
+  function clusterIcon(n, color) {
+    const s = n < 10 ? 34 : n < 100 ? 40 : 46;
+    return L.divIcon({ className: 'fm-cluster-wrap', html: '<i class="fm-cluster" style="--c:' + color + ';width:' + s + 'px;height:' + s + 'px">' + n + '</i>', iconSize: [s, s], iconAnchor: [s / 2, s / 2] });
+  }
+  function syncCluster(key, g) {
+    let color = g.items[0].m.map.color;
+    if (g.items.some(function (x) { return x.m.map.color !== color; })) color = '#6b7280';   // 不同圖層混在一團：灰
+    const sig = [g.items.length, color, g.lat.toFixed(5), g.lng.toFixed(5)].join('|');
+    let mk = clusters[key];
+    if (mk && mk._fmSig === sig) { mk._fmItems = g.items; return; }
+    if (!mk) {
+      mk = L.marker([g.lat, g.lng], { icon: clusterIcon(g.items.length, color), keyboard: false });
+      mk.on('click', function () { zoomIntoCluster(mk._fmItems); });
+      markerLayer.addLayer(mk);
+      clusters[key] = mk;
+    } else {
+      mk.setLatLng([g.lat, g.lng]);
+      mk.setIcon(clusterIcon(g.items.length, color));
+    }
+    mk._fmItems = g.items; mk._fmSig = sig;
+  }
+  // 點一團：飛到看得清這一團的縮放（至少拉近一級；全擠在同一個點就拉到 17）
+  function zoomIntoCluster(items) {
+    if (!leaf || !items || !items.length) return;
+    const b = L.latLngBounds(items.map(function (x) { return [x.p.lat, x.p.lng]; }));
+    let z = leaf.getBoundsZoom(b, false, L.point(40, 40));
+    z = Math.max(Math.min(z, 17), leaf.getZoom() + 1);
+    leaf.flyTo(b.getCenter(), z, { duration: 0.5 });
   }
   function fitTaiwan() {
     if (!leaf) return;
@@ -490,15 +621,15 @@
   function focusPlace(id, open) {
     const x = findPlace(id);
     S.selected = id;
-    paintList(); paintMarkers();
+    markSelected(); paintMarkers();
     if (!x || !leaf) return;
     if (x.p.lat === null) { toast('「' + x.p.name + '」還沒有位置，編輯它查地址或在地圖上點位置'); return; }
-    const mk = markers[id];
     const z = Math.max(leaf.getZoom(), 16);
+    S.popupFor = open ? id : null;   // 到了（moveend → syncMarkers）再開小卡
     leaf.flyTo([x.p.lat, x.p.lng], z, { duration: 0.6 });
-    if (open && mk) setTimeout(function () { if (markers[id]) markers[id].openPopup(); }, 650);
   }
   function scrollRowIntoView(id) {
+    ensureRow(id);
     const r = built.querySelector('.fm-row[data-id="' + id + '"]');
     if (r) r.scrollIntoView({ block: 'nearest' });
   }
@@ -1075,7 +1206,8 @@
     document.querySelectorAll('.fm-ov').forEach(function (o) { o.remove(); });
     if (leaf) { try { leaf.remove(); } catch (e) { /* */ } }
     if (mapRO) { try { mapRO.disconnect(); } catch (e) { /* */ } mapRO = null; }
-    leaf = null; markerLayer = null; markers = {}; fitted = false; revealFit = false; built = null; S.sheet = 'half'; S.sheetBefore = null;
+    leaf = null; markerLayer = null; markers = {}; clusters = {}; groups = null; groupsKey = ''; fitted = false; revealFit = false; built = null; S.sheet = 'half'; S.sheetBefore = null; S.popupFor = null;
+    listRows = []; listShown = 0; listSentinel = null; if (listIO) { listIO.disconnect(); listIO = null; }
   }
   // 從別處進來（#note/<地圖 id>）：把那張地圖顯示出來、全部放進畫面
   function reveal(mapId) {

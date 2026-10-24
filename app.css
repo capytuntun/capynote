@@ -6671,13 +6671,17 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
 .fm-map.is-picking .leaflet-marker-icon { pointer-events: none; }
 .fm-map-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: var(--fs-sm); }
 .fm-map-empty[hidden] { display: none; }
-/* 深色主題：圖磚反相（OSM 的標準圖只有淺色版） */
-:root[data-theme="dark"] .fm-map .leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6); }
+/* 深色主題：圖磚反相（OSM 的標準圖只有淺色版）。掛在整個圖磚層上，不是每一張圖磚：每張各自一個 filter 在手機上是幾十個合成層 */
+:root[data-theme="dark"] .fm-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9) saturate(.6); }
 .fm-map .leaflet-control-zoom a { background: var(--bg); color: var(--text); border-color: var(--border-strong); }
 .fm-map .leaflet-control-zoom a:hover { background: var(--row-hover); }
 .fm-map .leaflet-bar { border: 1px solid var(--border-strong); box-shadow: var(--shadow-sm); }
 /* 針：divIcon，顏色是地圖的顏色 */
 .fm-pin-wrap { background: transparent; border: 0; }
+/* 一團針（拉遠時好幾家疊在一起）：圓圈裡是家數，顏色是那一層的；點一下拉近 */
+.fm-cluster-wrap { background: transparent; border: 0; }
+.fm-cluster { display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--c, #e0542c); color: #fff; font-weight: 700; font-size: 13px; line-height: 1; border: 2px solid #fff; box-shadow: 0 0 0 4px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .3); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c, #e0542c) 32%, transparent), 0 2px 6px rgba(0, 0, 0, .3); cursor: pointer; }
+.fm-more { display: flex; justify-content: center; padding: 8px 0 12px; }
 .fm-pin { position: relative; display: block; width: 26px; height: 26px; border-radius: 50% 50% 50% 0; background: var(--c, #e0542c); border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .35); transform: rotate(-45deg); transform-origin: 50% 50%; transition: transform var(--dur-1, .12s) ease; }
 .fm-pin::after { content: ''; position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: #fff; }
 .fm-pin.is-sel { transform: rotate(-45deg) scale(1.25); box-shadow: 0 0 0 4px rgba(255, 255, 255, .6), 0 3px 10px rgba(0, 0, 0, .4); }
@@ -6887,13 +6891,15 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
      標題列最左邊的按鈕打開（圖資中心的那顆帶著「幾個篩選在作用」的數字），點背景、✕ 或 Esc 關。
      抽屜的內容就是桌機的 .fm-side／.tt-side 本身，不是另一份。
    - 圖資中心：地圖在上面、清單是下面一張可以拖的面板（js 的 bindSheet：拖把手放開靠到 peek／half／full，點一下切換），
-     高度是 .fm-page 的 --fm-sheet；「在地圖上點位置」時面板先收到只剩把手。
+     高度是 .fm-list-wrap 自己的 --fm-sheet；「在地圖上點位置」時面板先收到只剩把手。
    - timetree：點一天的面板放在月曆下面（桌機在右邊）；標題列折成兩列，搜尋框在第二列拉滿。
    - 滑過才出現的按鈕（地點的編輯／⋯、圖層跟行事曆的 ⋯）在觸控裝置上一直顯示——手機沒有「滑過去」。
    斷點跟全站一樣是 900px；這一段放在檔案最後，才蓋得過上面 ≤900／≤640 把 .fm-side／.tt-side 整個 display:none 的舊規則。 ===== */
 .fm-side-head, .tt-side-head, .fm-side-btn, .tt-side-btn, .fm-side-bg, .tt-side-bg, .fm-sheet-handle { display: none; }
 .fm-side-btn, .tt-side-btn { position: relative; width: 36px; padding: 0; flex: 0 0 auto; }
 .fm-side-badge { position: absolute; right: 1px; top: 1px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 10px; line-height: 16px; text-align: center; font-weight: 700; }
+/* 面板高度：註冊成不繼承的屬性，寫在 .fm-list-wrap 自己身上時只有它重算樣式（會繼承的自訂屬性一動，整個子樹都重算） */
+@property --fm-sheet { syntax: '<length-percentage>'; inherits: false; initial-value: 46%; }
 @media (hover: none), (max-width: 900px) {
   .fm-row-tools { display: inline-flex; position: static; flex-direction: column; margin: -5px -4px -5px 0; border: 0; box-shadow: none; background: transparent; }
   .fm-row.is-sel .fm-row-thumb, .fm-row:hover .fm-row-thumb { margin-right: 0; }
