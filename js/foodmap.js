@@ -48,6 +48,8 @@
   // 縣市：地址裡找得到就自動帶出（臺→台統一，篩選才不會「臺北市」「台北市」各算一邊）；台灣以外抓「○○県／都／府」
   const TW_CITIES = ['台北市', '新北市', '桃園市', '台中市', '台南市', '高雄市', '基隆市', '新竹市', '嘉義市', '新竹縣', '苗栗縣', '彰化縣', '南投縣', '雲林縣', '嘉義縣', '屏東縣', '宜蘭縣', '花蓮縣', '台東縣', '澎湖縣', '金門縣', '連江縣'];
   function normCity(s) { return str(s, 40).trim().replace(/^臺/, '台'); }
+  // 縣市中心（lat, lng, 縮放）：點了縣市、那裡一家店都還沒定位時地圖飛去的地方
+  const CITY_CENTER = { 台北市: [25.04, 121.55, 12], 新北市: [25.01, 121.46, 11], 桃園市: [24.99, 121.3, 11], 台中市: [24.15, 120.67, 11], 台南市: [22.99, 120.21, 11], 高雄市: [22.63, 120.3, 11], 基隆市: [25.13, 121.74, 12], 新竹市: [24.8, 120.97, 12], 嘉義市: [23.48, 120.45, 12], 新竹縣: [24.8, 121.1, 11], 苗栗縣: [24.56, 120.82, 11], 彰化縣: [24.05, 120.52, 11], 南投縣: [23.9, 120.85, 10], 雲林縣: [23.7, 120.43, 11], 嘉義縣: [23.45, 120.45, 11], 屏東縣: [22.55, 120.55, 10], 宜蘭縣: [24.7, 121.75, 11], 花蓮縣: [23.8, 121.4, 10], 台東縣: [22.9, 121.05, 10], 澎湖縣: [23.57, 119.58, 11], 金門縣: [24.44, 118.33, 12], 連江縣: [26.16, 119.95, 11], 東京都: [35.68, 139.69, 11], 北海道: [43.06, 141.35, 9], 京都府: [35.01, 135.77, 11], 大阪府: [34.69, 135.5, 11] };
   function cityFromAddress(addr) {
     const a = String(addr || '').replace(/臺/g, '台');
     for (let i = 0; i < TW_CITIES.length; i++) if (a.indexOf(TW_CITIES[i]) >= 0) return TW_CITIES[i];
@@ -618,6 +620,21 @@
     if (rows.length === 1) { leaf.setView([rows[0].p.lat, rows[0].p.lng], 16); return; }
     leaf.fitBounds(L.latLngBounds(rows.map(function (x) { return [x.p.lat, x.p.lng]; })), { padding: [40, 40], maxZoom: 17 });
   }
+  // 點了縣市，地圖跟著過去（2026-10-25「我點擊縣市，應該要自動切換到相對應的縣市」）：那個縣市有定位過的店就把它們
+  // 框進畫面，一家都還沒定位就飛到縣市中心（CITY_CENTER）；清除就回到全部的店。手機上抽屜會先收起來、面板退到一半，不然看不到地圖在動。
+  function goToCity(city) {
+    if (!leaf) return;
+    if (isMobile()) { if (city) openSide(false); sheetShowMap(); }
+    const rows = filtered().filter(function (x) { return x.p.lat !== null; });
+    if (rows.length) { flyToRows(rows); return; }
+    const c = CITY_CENTER[city];
+    if (c) leaf.flyTo([c[0], c[1]], c[2], { duration: 0.7 });
+    else if (city) toast('「' + city + '」的地點都還沒定位');
+  }
+  function flyToRows(rows) {
+    if (rows.length === 1) { leaf.flyTo([rows[0].p.lat, rows[0].p.lng], Math.max(leaf.getZoom(), 15), { duration: 0.7 }); return; }
+    leaf.flyToBounds(L.latLngBounds(rows.map(function (x) { return [x.p.lat, x.p.lng]; })), { padding: [40, 40], maxZoom: 16, duration: 0.7 });
+  }
   function focusPlace(id, open) {
     const x = findPlace(id);
     S.selected = id;
@@ -684,7 +701,7 @@
       }
       if ((b = t.closest('[data-untag]'))) { const u = b.getAttribute('data-untag'); S.tags = S.tags.filter(function (x) { return x !== u; }); paint(); paintMarkers(); return; }
       if ((b = t.closest('[data-visit]'))) { S.visit = b.getAttribute('data-visit'); paint(); paintMarkers(); return; }
-      if ((b = t.closest('[data-city]'))) { S.city = b.getAttribute('data-city'); paint(); paintMarkers(); return; }
+      if ((b = t.closest('[data-city]'))) { S.city = b.getAttribute('data-city'); paint(); paintMarkers(); goToCity(S.city); return; }
       if ((b = t.closest('.fm-side [data-tag], .fm-list [data-tag]'))) {
         const tg = b.getAttribute('data-tag');
         const i = S.tags.findIndex(function (x) { return x.toLowerCase() === tg.toLowerCase(); });
