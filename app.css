@@ -7094,7 +7094,7 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
 #sidebar { overflow-y: auto; overflow-x: hidden; }
 .tree, .search-results { min-height: 120px; }
 .sidebar-nav-item { height: 36px; padding-top: 0; padding-bottom: 0; }
-@media (max-height: 680px) {
+@media (max-height: 800px) {
   .sidebar-areas { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
   .sidebar-areas .sidebar-nav-item { height: 30px; padding: 0 10px 0 14px; gap: 8px; min-width: 0; overflow: hidden; }
   .sidebar-nav:not(.sidebar-areas) .sidebar-nav-item { height: 30px; padding: 0 16px; }
@@ -7102,40 +7102,40 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
 }
 
 /* ---------- 應用：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 合成側邊欄一列（2026-10-26）----------
-   使用者：「trello、start.me、xmind、timetree、課程進度、圖資中心、隨筆，整合起來」。側邊欄一列「應用」，七個頁面
-   共用一組切換器，籤的圖示沿用各自在側邊欄時的顏色（[data-app] 的 --ac）。切換器有兩份、靠寬度二選一：
-   - 桌機（>640px）是頂列 logo 右邊的 #topbar-apps（.topbar-apps／.ta-btn，長得跟模式切換鈕一樣）。第一版只有
-     頁面上方那一條，抽屜開著時跟頁面一樣往右讓——trello／隨筆開著抽屜、timetree／課程進度／圖資中心收抽屜，
-     籤列就左右滑，剛點的籤從游標底下跑掉（使用者：「點到 timetree 位子會跑」）。頂列不受抽屜影響，位置永遠不動。
-   - 手機（≤640px）頂列放不下七顆，改用 #main 直欄裡、七個 wrap 前面的 #apps-bar（.pa-tabs 同一套樣式，一行
-     可以橫向捲）；手機的抽屜本來就蓋在內容上、點內容就收，沒有讓位的問題。
-   [hidden] 要自己寫，因為 display: flex 會蓋過瀏覽器預設的 [hidden] { display: none }。 */
+   使用者：「trello、start.me、xmind、timetree、課程進度、圖資中心、隨筆，整合起來」。側邊欄一列「應用」，底下是
+   七個應用的小格 #apps-group——圖示在上、名字在下，4 欄 2 列，圖示沿用各自在側邊欄時的顏色（[data-app] 的 --ac），
+   開著的那一格用同一個顏色淡淡地塗底，跟區域列的 is-active 同一套。列尾的 ▾（.apps-twisty）收合／展開。
+   切換器一定得在抽屜裡：抽屜是固定位置的，不管哪一頁開著、抽屜開或收，格子都在同一個地方。前兩版——頁面上方
+   一條籤列（抽屜開著就往右讓，timetree 收抽屜、trello 開抽屜，籤列跟著左右滑：「點到 timetree 位子會跑」）
+   和頂列 logo 右邊（「我不要在上面」）——都被退回。
+   4×2 的小格一共不到 100px，比七列（252px）省得多，矮螢幕（上面那段的 680px 規則）再縮一點、並橫跨區域列
+   兩欄排版的整個寬度；真的嫌佔位置就收起來，狀態會記住。[hidden] 要自己寫，因為 display: grid 會蓋過瀏覽器
+   預設的 [hidden] { display: none }。 */
 [data-app="board"] { --ac: #0079bf; } [data-app="start"] { --ac: #5b7fa6; } [data-app="xmind"] { --ac: #c5221f; } [data-app="timetree"] { --ac: #1a9a81; }
 [data-app="progress"] { --ac: #b8741a; } [data-app="foodmap"] { --ac: #e0542c; } [data-app="quick"] { --ac: #e0a458; }
-/* 手機：頁面上方那一條 */
-.apps-bar { display: flex; align-items: center; flex: 0 0 auto; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg); overflow-x: auto; scrollbar-width: thin; }
-.apps-bar[hidden] { display: none; }
-.apps-bar .pa-tabs { flex: 0 0 auto; }
-.apps-bar .pa-tab { white-space: nowrap; }
-.apps-bar .pa-tab .ic-svg { color: var(--ac, var(--text-faint)); opacity: .85; }
-.apps-bar .pa-tab:hover .ic-svg, .apps-bar .pa-tab.is-active .ic-svg { opacity: 1; }
-.apps-bar .pa-tab.is-active { background: color-mix(in srgb, var(--ac, var(--accent)) 12%, transparent); color: var(--text); }
-@media (min-width: 641px) { .apps-bar { display: none; } }
-/* 桌機：頂列的切換器。樣式照 .mode-switch／.mode-btn 抄，不能直接用那兩個 class——app.js 用 .mode-btn 綁分割／編輯／預覽。
-   頂列太窄時（fitTopbar 的 lvl2）跟模式鈕一樣收掉文字只留圖示。 */
-.topbar-apps { display: flex; gap: 2px; padding: 2px; margin-left: 8px; background: var(--bg-3); flex: 0 0 auto; }
-.topbar-apps[hidden] { display: none; }
-.ta-btn {
-  display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--text-dim);
-  padding: 6px 11px; cursor: pointer; font: inherit; font-size: var(--fs-sm); font-weight: 600; white-space: nowrap;
-  transition: background .12s, color .12s;
+.apps-group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 2px 10px 6px 14px; }
+.apps-group[hidden] { display: none; }
+.apps-item {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0;
+  padding: 6px 2px 5px; border: 0; background: transparent; color: var(--text-dim); cursor: pointer;
+  font: inherit; font-size: 11px; line-height: 1.2; font-weight: 500; white-space: nowrap;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
 }
-.ta-btn:hover { color: var(--text); }
-.ta-btn.is-active { background: var(--bg); color: var(--text); box-shadow: var(--shadow-raise); }
-:root[data-theme="dark"] .ta-btn.is-active { background: var(--bg-2); }
-.ta-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.ta-btn .ic-svg { width: 15px; height: 15px; flex: 0 0 auto; color: var(--ac, var(--text-faint)); opacity: .85; }
-.ta-btn:hover .ic-svg, .ta-btn.is-active .ic-svg { opacity: 1; }
-#topbar.topbar-lvl2 .ta-btn .btn-label { display: none; }
-#topbar.topbar-lvl2 .ta-btn { padding-left: 9px; padding-right: 9px; gap: 0; }
-@media (max-width: 640px) { .topbar-apps { display: none; } }
+.apps-item > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.apps-item .ic-svg { width: 18px; height: 18px; flex: 0 0 auto; color: var(--ac, var(--text-faint)); opacity: .85; transition: transform var(--dur-2) var(--ease-spring), opacity var(--dur-1) var(--ease-out); }
+.apps-item:hover { background: var(--row-hover); color: var(--text); }
+.apps-item:hover .ic-svg { transform: translateY(-1px) scale(1.08); opacity: 1; }
+.apps-item.is-active { background: color-mix(in srgb, var(--ac, var(--accent)) 12%, transparent); color: var(--text); font-weight: 600; }
+.apps-item.is-active .ic-svg { opacity: 1; }
+.apps-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 列尾的 ▾：不跟著區域列的圖示規則走（不上色、hover 不位移），收合時轉成 ▸ */
+#apps-open-btn .apps-twisty { margin-left: auto; display: inline-flex; }
+#apps-open-btn .apps-twisty .ic-svg, #apps-open-btn:hover .apps-twisty .ic-svg { width: 14px; height: 14px; color: var(--text-faint); opacity: 1; transform: none; transition: transform var(--dur-2) var(--ease-out), color var(--dur-1) var(--ease-out); }
+#apps-open-btn:hover .apps-twisty .ic-svg { color: var(--text-dim); }
+#apps-open-btn.is-collapsed .apps-twisty .ic-svg, #apps-open-btn.is-collapsed:hover .apps-twisty .ic-svg { transform: rotate(-90deg); }
+@media (max-height: 800px) {
+  .sidebar-areas { grid-auto-flow: row dense; }   /* 小格橫跨兩欄，個人那一列補到應用旁邊，不留洞 */
+  .sidebar-areas .apps-group { grid-column: 1 / -1; padding: 2px 10px 4px 14px; }
+  .apps-item { padding: 4px 2px 3px; gap: 2px; }
+  .apps-item .ic-svg { width: 16px; height: 16px; }
+}

@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="vendor/hljs-github.min.css" id="hljs-theme-light">
-  <link rel="stylesheet" href="app.css?v=248">
+  <link rel="stylesheet" href="app.css?v=250">
 </head>
 <body>
   <!-- Login gate: shown until /api/me returns a user -->
@@ -68,19 +68,6 @@
       <div class="topbar-left">
         <button id="sidebar-collapse" class="icon-btn" title="筆記清單 (Ctrl+\)" aria-label="開啟筆記清單" data-icon="panel-left"></button>
         <span class="logo" title="回到首頁"><span class="logo-mark" aria-hidden="true"></span><span class="logo-text">capynote</span></span>
-        <!-- 應用的切換器（桌機）：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆，開著其中一頁時顯示
-             （app.js showAppsBar）。放在頂列 logo 右邊——筆記模式時 分割／編輯／預覽 也在這個位置——而不是頁面上方：
-             頂列不受抽屜影響，timetree 收抽屜、trello 開抽屜，切換器都在同一個位置（使用者：「點到 timetree 位子會跑」）。
-             手機（≤640px）頂列放不下，改顯示 #main 裡的 #apps-bar。樣式照模式切換鈕，但 class 不能用 .mode-btn（app.js 綁它）。 -->
-        <nav id="topbar-apps" class="topbar-apps" aria-label="應用" hidden>
-          <button class="ta-btn" type="button" data-app="board" title="像 Trello 一樣的看板：列表與卡片" data-icon="kanban"><span class="btn-label">trello</span></button>
-          <button class="ta-btn" type="button" data-app="start" title="像 start.me 一樣的書籤起始頁" data-icon="layout-grid"><span class="btn-label">start.me</span></button>
-          <button class="ta-btn" type="button" data-app="xmind" title="像 XMind 一樣的心智圖" data-icon="mind-map"><span class="btn-label">xmind</span></button>
-          <button class="ta-btn" type="button" data-app="timetree" title="像 TimeTree 一樣的行事曆" data-icon="calendar"><span class="btn-label">timetree</span></button>
-          <button class="ta-btn" type="button" data-app="progress" title="課程進度：輸入課程與章節，完成一章勾一章，進度與預計完成日會同步到課程筆記與 timetree" data-icon="list-checks"><span class="btn-label">課程進度</span></button>
-          <button class="ta-btn" type="button" data-app="foodmap" title="圖資中心：自己建圖層（預設美食地圖、步道地圖），把名稱、地址、資料來源、標籤放上 OpenStreetMap" data-icon="map-pin"><span class="btn-label">圖資中心</span></button>
-          <button class="ta-btn" type="button" data-app="quick" title="隨手記一下，像 Google Keep 一樣的卡片牆" data-icon="pin"><span class="btn-label">隨筆</span></button>
-        </nav>
       </div>
 
       <!-- 開啟筆記時，標題與編輯按鈕直接顯示在這條 bar 上（display:contents 併入 topbar）-->
@@ -181,9 +168,20 @@
         <button id="course-open-btn" class="sidebar-nav-item" type="button" title="課程筆記，跟一般筆記分開放" data-icon="award">課程筆記</button>
         <button id="knowledge-open-btn" class="sidebar-nav-item" type="button" title="自己整理彙整出來的筆記" data-icon="book-open">知識區</button>
         <!-- 應用：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 合成一列（2026-10-26，使用者：「整合起來」）。
-             做法跟 個人（小說／影片）一樣：進去是一頁、上面一排分頁籤（#apps-bar）切換；這一列開上次用的那一個。
-             七個頁面本身、路由（#board、#start…）都沒動，見 app.js openApps / showAppsBar。 -->
-        <button id="apps-open-btn" class="sidebar-nav-item" type="button" title="應用：trello、start.me、xmind、timetree、課程進度、圖資中心、隨筆" data-icon="apps">應用</button>
+             七個應用是這一列底下的 #apps-group：圖示在上、名字在下的 4×2 小格，列尾的 ▾ 收合／展開（app.js setAppsOpen，
+             localStorage appsOpen）。切換器就放在抽屜裡——抽屜是固定位置的，不管哪一頁開著、抽屜開或收，格子都在
+             同一個地方。前兩版（頁面上方一條籤列、頂列 logo 右邊）都被退回：「點到 timetree 位子會跑」「我不要在上面」。
+             點「應用」開上次用的那一個；七個頁面本身、路由（#board、#start…）都沒動，見 app.js openApps / showApp。 -->
+        <button id="apps-open-btn" class="sidebar-nav-item" type="button" title="應用：trello、start.me、xmind、timetree、課程進度、圖資中心、隨筆" data-icon="apps" aria-expanded="true" aria-controls="apps-group">應用<span class="apps-twisty" data-icon="chevron-down" title="收合／展開應用"></span></button>
+        <div id="apps-group" class="apps-group" role="group" aria-label="應用">
+          <button class="apps-item" type="button" data-app="board" title="像 Trello 一樣的看板：列表與卡片" data-icon="kanban"><span>trello</span></button>
+          <button class="apps-item" type="button" data-app="start" title="像 start.me 一樣的書籤起始頁" data-icon="layout-grid"><span>start.me</span></button>
+          <button class="apps-item" type="button" data-app="xmind" title="像 XMind 一樣的心智圖" data-icon="mind-map"><span>xmind</span></button>
+          <button class="apps-item" type="button" data-app="timetree" title="像 TimeTree 一樣的行事曆" data-icon="calendar"><span>timetree</span></button>
+          <button class="apps-item" type="button" data-app="progress" title="課程進度：輸入課程與章節，完成一章勾一章，進度與預計完成日會同步到課程筆記與 timetree" data-icon="list-checks"><span>課程進度</span></button>
+          <button class="apps-item" type="button" data-app="foodmap" title="圖資中心：自己建圖層（預設美食地圖、步道地圖），把名稱、地址、資料來源、標籤放上 OpenStreetMap" data-icon="map-pin"><span>圖資中心</span></button>
+          <button class="apps-item" type="button" data-app="quick" title="隨手記一下，像 Google Keep 一樣的卡片牆" data-icon="pin"><span>隨筆</span></button>
+        </div>
         <!-- 個人區：小說＋影片（js/videos.js），需要再輸入一次密碼；id 沿用 novel，伺服器的 area 也還是 'novel' -->
         <button id="novel-open-btn" class="sidebar-nav-item" type="button" title="個人區（小說、影片），需要再輸入一次密碼才能進入" data-icon="lock">個人</button>
       </nav>
@@ -364,19 +362,6 @@
         <div id="novel-page" class="dashboard trash-page"></div>
         <div id="videos-page" class="vd-page" hidden></div>
       </div>
-      <!-- 應用的分頁籤（app.js showAppsBar）：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 七頁共用。
-           放在 #main 直欄裡、七個 wrap 的前面，開著其中一頁時顯示、哪一頁開著就亮哪一個籤；七個頁面與路由都沒動。 -->
-      <div id="apps-bar" class="apps-bar" hidden>
-        <nav class="pa-tabs" aria-label="應用">
-          <button class="pa-tab" type="button" data-app="board" title="像 Trello 一樣的看板：列表與卡片" data-icon="kanban">trello</button>
-          <button class="pa-tab" type="button" data-app="start" title="像 start.me 一樣的書籤起始頁" data-icon="layout-grid">start.me</button>
-          <button class="pa-tab" type="button" data-app="xmind" title="像 XMind 一樣的心智圖" data-icon="mind-map">xmind</button>
-          <button class="pa-tab" type="button" data-app="timetree" title="像 TimeTree 一樣的行事曆" data-icon="calendar">timetree</button>
-          <button class="pa-tab" type="button" data-app="progress" title="課程進度：輸入課程與章節，完成一章勾一章，進度與預計完成日會同步到課程筆記與 timetree" data-icon="list-checks">課程進度</button>
-          <button class="pa-tab" type="button" data-app="foodmap" title="圖資中心：自己建圖層（預設美食地圖、步道地圖），把名稱、地址、資料來源、標籤放上 OpenStreetMap" data-icon="map-pin">圖資中心</button>
-          <button class="pa-tab" type="button" data-app="quick" title="隨手記一下，像 Google Keep 一樣的卡片牆" data-icon="pin">隨筆</button>
-        </nav>
-      </div>
       <div id="quick-wrap" class="trash-wrap area-wrap" hidden>
         <div id="quick-page" class="quick-page"></div>
       </div>
@@ -477,6 +462,6 @@
   <script src="js/imagelib.js?v=8"></script>
   <script src="js/linesync.js?v=9"></script>
   <script src="js/embedswitch.js?v=2"></script>
-  <script src="js/app.js?v=164"></script>
+  <script src="js/app.js?v=165"></script>
 </body>
 </html>

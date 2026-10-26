@@ -221,6 +221,7 @@
     ['course', 'knowledge', 'novel'].forEach(function (a) { setNavActive(a + '-open-btn', a === area); });
     // trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 共用側邊欄的「應用」那一列（見 openApps）
     setNavActive('apps-open-btn', APPS.indexOf(area) >= 0);
+    lightApp(APPS.indexOf(area) >= 0 ? area : null);   // 開著一張 trello 看板／一張 xmind 時，那一格也亮著
     renderTree();
   }
   // 新東西要建在哪個區域：有目標資料夾就跟資料夾（伺服器的 resolveArea 也是這樣要求的），
@@ -1066,8 +1067,8 @@
     if (timetreeWrapEl) { timetreeWrapEl.hidden = true; if (window.TimeTree) TimeTree.teardown(); }
     if (progressWrapEl) { progressWrapEl.hidden = true; if (window.Progress) Progress.teardown(); }
     if (foodmapWrapEl) { foodmapWrapEl.hidden = true; if (window.FoodMap) FoodMap.teardown(); }
-    // 七個應用上面那排分頁籤跟頁面一起收，側邊欄的「應用」也熄——開其中一頁時 showAppsBar 再點亮
-    hideAppsBar();
+    // 側邊欄「應用」那一列和底下的小格都熄——開其中一頁時 showApp 再點亮（編輯該區的一篇時 setTreeArea 點亮）
+    clearApp();
   }
 
   // 進入一個區域頁面前的共用收尾：跟 openTrash／openBook 同一套「收起其他檢視」。
@@ -1178,7 +1179,7 @@
     closeAreaViews();
     boardsWrapEl.hidden = false;
     boardsWrapEl.scrollTop = 0;
-    showAppsBar('board');
+    showApp('board');
     autoOpenSidebar();
     setHash('board');
     Board.renderIndex(boardsPageEl, boardsOpts());
@@ -1247,7 +1248,7 @@
     if (o && o.pageId) { startCurrent = o.pageId; LS.set('startPage', o.pageId); }
     startWrapEl.hidden = false;
     startWrapEl.scrollTop = 0;
-    showAppsBar('start');
+    showApp('start');
     autoOpenSidebar();   // 使用者要抽屜留著；只有打開某個 trello 看板或文件才收
     setHash('start');
     setTreeArea('start');
@@ -1304,7 +1305,7 @@
     closeAreaViews();
     xmindWrapEl.hidden = false;
     xmindWrapEl.scrollTop = 0;
-    showAppsBar('xmind');
+    showApp('xmind');
     autoOpenSidebar();
     setHash('xmind');
     XMind.renderIndex(xmindPageEl, xmindOpts());
@@ -1484,7 +1485,7 @@
     closeAreaViews();
     if (o && o.calId) { delete TimeTree.state.hidden[o.calId]; LS.set('ttHidden', JSON.stringify(TimeTree.state.hidden)); }
     timetreeWrapEl.hidden = false;
-    showAppsBar('timetree');
+    showApp('timetree');
     setSidebarOpen(false);   // 使用者要的：點開 timetree 就收起左邊
     setHash('timetree');
     setTreeArea('timetree');
@@ -1566,7 +1567,7 @@
     closeAreaViews();
     if (o && o.courseId) { Progress.state.selected = o.courseId; LS.set('pgCourse', o.courseId); }
     progressWrapEl.hidden = false;
-    showAppsBar('progress');
+    showApp('progress');
     setSidebarOpen(false);   // 跟 timetree 一樣：頁面自己有左欄
     setHash('progress');
     setTreeArea('progress');
@@ -1635,7 +1636,7 @@
     closeAreaViews();
     if (o && o.mapId) FoodMap.reveal(o.mapId);
     foodmapWrapEl.hidden = false;
-    showAppsBar('foodmap');
+    showApp('foodmap');
     setSidebarOpen(false);   // 跟 timetree 一樣：頁面自己有左欄
     setHash('foodmap');
     setTreeArea('foodmap');
@@ -2013,7 +2014,7 @@
     closeAreaViews();
     quickWrapEl.hidden = false;
     quickWrapEl.scrollTop = 0;
-    showAppsBar('quick');
+    showApp('quick');
     autoOpenSidebar();
     setHash('quick');
     QuickNotes.render(quickPageEl, quickOpts());
@@ -2385,20 +2386,18 @@
   // 畫在 #videos-page）。兩個共用同一道密碼與同一個 area:'novel'，見 openVideos。
   const videosPageEl = $('#videos-page');
   const paTabsEl = novelWrapEl ? novelWrapEl.querySelector('.pa-tabs') : null;
-  // ---- 應用（#apps-bar）：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 合成側邊欄的一列 ----
+  // ---- 應用（#apps-group）：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 合成側邊欄的一列 ----
   // 使用者（2026-10-26）：「trello、start.me、xmind、timetree、課程進度、圖資中心、隨筆，整合起來」。
-  // 做法跟 個人（小說／影片）一樣：側邊欄一列「應用」，進去是一頁、最上面一排分頁籤切換。七個頁面
-  // 各自的 wrap、路由（#board、#start…）、開法（openBoards…）、抽屜開關都沒動，只是多一組共用的切換器，
-  // 哪一頁開著就亮哪一個籤。切換器有兩份、同一時間只顯示一份（app.css 用寬度切）：桌機是頂列 logo 右邊
-  // 的 #topbar-apps，手機（≤640px）是 #main 裡七個 wrap 前面的 #apps-bar。第一版只有頁面上方那一條，
-  // 抽屜開著時往右讓出抽屜的寬度——trello／隨筆開著抽屜、timetree／課程進度／圖資中心收抽屜，籤列就
-  // 跟著左右滑，剛點的籤從游標底下跑掉（使用者：「點到 timetree 位子會跑」）；頂列不受抽屜影響。
-  // 側邊欄那一列開上次用的那一個（localStorage appsLast，預設 trello）。#apps 這個路由只是中鍵／
+  // 側邊欄一列「應用」，底下是七個應用的小格（#apps-group：圖示在上、名字在下、4×2），列尾的 ▾ 收合／展開
+  // （localStorage appsOpen，預設展開）。七個頁面各自的 wrap、路由（#board、#start…）、開法（openBoards…）、
+  // 抽屜開關都沒動，只是哪一頁開著就亮哪一格、「應用」那一列也亮。切換器一定得在抽屜裡：抽屜是固定位置
+  // 的，不管哪一頁開著、抽屜開或收，格子都在同一個地方——前兩版放在頁面上方（抽屜開著就往右讓，trello／
+  // 隨筆開抽屜、timetree／課程進度／圖資中心收抽屜，籤列跟著左右滑：「點到 timetree 位子會跑」）和頂列
+  // logo 右邊（「我不要在上面」）都被退回。
+  // 點「應用」開上次用的那一個（appsLast，預設 trello），收合著就先展開。#apps 這個路由只是中鍵／
   // 書籤用的入口：openApps 會先把它 replace 成真正那一頁的 hash，不留在瀏覽紀錄裡——不然從
   // #board 按上一頁退到 #apps，hashchange 又開一次 trello，永遠退不出去。
-  const appsBarEl = $('#apps-bar');
-  const topbarAppsEl = $('#topbar-apps');
-  const appsSwitchers = [topbarAppsEl, appsBarEl].filter(Boolean);
+  const appsGroupEl = $('#apps-group');
   const APPS = ['board', 'start', 'xmind', 'timetree', 'progress', 'foodmap', 'quick'];
   function appOpener(key) {
     return {
@@ -2406,23 +2405,31 @@
       progress: function () { openProgress(); }, foodmap: function () { openFoodMap(); }, quick: openQuick
     }[key] || null;
   }
-  function showAppsBar(key) {
-    appsSwitchers.forEach(function (el) {
-      el.hidden = false;
-      el.querySelectorAll('[data-app]').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-app') === key); });
-    });
+  // 亮哪一格：開著的那個應用，或正在編輯的那一篇所屬的應用（setTreeArea 也會叫）；null 全熄
+  function lightApp(key) {
+    if (!appsGroupEl) return;
+    appsGroupEl.querySelectorAll('[data-app]').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-app') === key); });
+  }
+  function showApp(key) {
+    lightApp(key);
     setNavActive('apps-open-btn', true);
     LS.set('appsLast', key);
-    fitTopbar();   // 頂列多了一組鈕：放不下就跟模式切換鈕一樣收掉文字只留圖示（lvl2）
   }
-  function hideAppsBar() {
-    appsSwitchers.forEach(function (el) { el.hidden = true; });
+  function clearApp() {
+    lightApp(null);
     setNavActive('apps-open-btn', false);
-    fitTopbar();
   }
+  function setAppsOpen(open, persist) {
+    if (appsGroupEl) appsGroupEl.hidden = !open;
+    const btn = $('#apps-open-btn');
+    if (btn) { btn.classList.toggle('is-collapsed', !open); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); }
+    if (persist !== false) LS.set('appsOpen', open ? '1' : '0');
+  }
+  setAppsOpen(LS.get('appsOpen', '1') !== '0', false);
   function openApps(key) {
     key = key || LS.get('appsLast', null) || 'board';
     if (APPS.indexOf(key) < 0) key = 'board';
+    if (appsGroupEl && appsGroupEl.hidden) setAppsOpen(true);
     if (location.hash === '#apps') replaceHash(key);   // 開頁的 setHash 看到 hash 已經對了就不會再 push
     const open = appOpener(key);
     if (open) open();
@@ -6181,15 +6188,16 @@
       if (!b) return;
       if (b.getAttribute('data-pa') === 'videos') openVideos(); else openArea('novel');
     });
-    // 應用：側邊欄一列開上次用的那一個；切換器（頂列的 #topbar-apps／手機的 #apps-bar）切換七個頁面（見 openApps / showAppsBar）
-    const appsBtn = $('#apps-open-btn'); if (appsBtn) appsBtn.addEventListener('click', function () { openApps(); });
-    appsSwitchers.forEach(function (el) {
-      el.addEventListener('click', function (e) {
-        const b = e.target.closest('[data-app]');
-        if (!b) return;
-        const open = appOpener(b.getAttribute('data-app'));
-        if (open) open();
-      });
+    // 應用：側邊欄一列開上次用的那一個（列尾的 ▾ 只收合／展開，不開頁）；底下的小格切換七個頁面（見 openApps / showApp）
+    const appsBtn = $('#apps-open-btn'); if (appsBtn) appsBtn.addEventListener('click', function (e) {
+      if (e.target.closest('.apps-twisty')) { setAppsOpen(!!(appsGroupEl && appsGroupEl.hidden)); return; }
+      openApps();
+    });
+    if (appsGroupEl) appsGroupEl.addEventListener('click', function (e) {
+      const b = e.target.closest('[data-app]');
+      if (!b) return;
+      const open = appOpener(b.getAttribute('data-app'));
+      if (open) open();
     });
 
     editorEl.addEventListener('input', function () {
@@ -6447,7 +6455,7 @@
       if (t.closest('.trash-row')) return null;   // 垃圾桶裡的筆記開不了（#note/<id> 會 404）
       if ((el = t.closest('.dash-note-wrap[data-id], #tree .note-row[data-id], .search-row[data-id], .qn-card[data-id], .boards-tile[data-id], .xmi-tile[data-id], .vd-card[data-id], .vd-stats [data-id]'))) return '#note/' + el.dataset.id;
       if ((el = t.closest('.pa-tab[data-pa]'))) return el.getAttribute('data-pa') === 'videos' ? '#videos' : '#novel';
-      if ((el = t.closest('.pa-tab[data-app], .ta-btn[data-app]'))) return '#' + el.getAttribute('data-app');   // 應用的分頁籤：#board、#timetree…
+      if ((el = t.closest('.apps-item[data-app]'))) return '#' + el.getAttribute('data-app');   // 應用的分頁籤：#board、#timetree…
       if ((el = t.closest('.sp-tab[data-page]'))) return '#note/' + el.getAttribute('data-page');
       if ((el = t.closest('.tt-cal[data-cal]'))) return '#note/' + el.getAttribute('data-cal');
       if ((el = t.closest('.pg-course[data-course]'))) return '#note/' + el.getAttribute('data-course');
