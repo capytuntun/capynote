@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="vendor/fonts/fonts.css">
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="vendor/hljs-github.min.css" id="hljs-theme-light">
-  <link rel="stylesheet" href="app.css?v=247">
+  <link rel="stylesheet" href="app.css?v=248">
 </head>
 <body>
   <!-- Login gate: shown until /api/me returns a user -->
@@ -68,6 +68,19 @@
       <div class="topbar-left">
         <button id="sidebar-collapse" class="icon-btn" title="筆記清單 (Ctrl+\)" aria-label="開啟筆記清單" data-icon="panel-left"></button>
         <span class="logo" title="回到首頁"><span class="logo-mark" aria-hidden="true"></span><span class="logo-text">capynote</span></span>
+        <!-- 應用的切換器（桌機）：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆，開著其中一頁時顯示
+             （app.js showAppsBar）。放在頂列 logo 右邊——筆記模式時 分割／編輯／預覽 也在這個位置——而不是頁面上方：
+             頂列不受抽屜影響，timetree 收抽屜、trello 開抽屜，切換器都在同一個位置（使用者：「點到 timetree 位子會跑」）。
+             手機（≤640px）頂列放不下，改顯示 #main 裡的 #apps-bar。樣式照模式切換鈕，但 class 不能用 .mode-btn（app.js 綁它）。 -->
+        <nav id="topbar-apps" class="topbar-apps" aria-label="應用" hidden>
+          <button class="ta-btn" type="button" data-app="board" title="像 Trello 一樣的看板：列表與卡片" data-icon="kanban"><span class="btn-label">trello</span></button>
+          <button class="ta-btn" type="button" data-app="start" title="像 start.me 一樣的書籤起始頁" data-icon="layout-grid"><span class="btn-label">start.me</span></button>
+          <button class="ta-btn" type="button" data-app="xmind" title="像 XMind 一樣的心智圖" data-icon="mind-map"><span class="btn-label">xmind</span></button>
+          <button class="ta-btn" type="button" data-app="timetree" title="像 TimeTree 一樣的行事曆" data-icon="calendar"><span class="btn-label">timetree</span></button>
+          <button class="ta-btn" type="button" data-app="progress" title="課程進度：輸入課程與章節，完成一章勾一章，進度與預計完成日會同步到課程筆記與 timetree" data-icon="list-checks"><span class="btn-label">課程進度</span></button>
+          <button class="ta-btn" type="button" data-app="foodmap" title="圖資中心：自己建圖層（預設美食地圖、步道地圖），把名稱、地址、資料來源、標籤放上 OpenStreetMap" data-icon="map-pin"><span class="btn-label">圖資中心</span></button>
+          <button class="ta-btn" type="button" data-app="quick" title="隨手記一下，像 Google Keep 一樣的卡片牆" data-icon="pin"><span class="btn-label">隨筆</span></button>
+        </nav>
       </div>
 
       <!-- 開啟筆記時，標題與編輯按鈕直接顯示在這條 bar 上（display:contents 併入 topbar）-->
@@ -464,6 +477,6 @@
   <script src="js/imagelib.js?v=8"></script>
   <script src="js/linesync.js?v=9"></script>
   <script src="js/embedswitch.js?v=2"></script>
-  <script src="js/app.js?v=163"></script>
+  <script src="js/app.js?v=164"></script>
 </body>
 </html>

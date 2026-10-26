@@ -2388,12 +2388,17 @@
   // ---- 應用（#apps-bar）：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 合成側邊欄的一列 ----
   // 使用者（2026-10-26）：「trello、start.me、xmind、timetree、課程進度、圖資中心、隨筆，整合起來」。
   // 做法跟 個人（小說／影片）一樣：側邊欄一列「應用」，進去是一頁、最上面一排分頁籤切換。七個頁面
-  // 各自的 wrap、路由（#board、#start…）、開法（openBoards…）、抽屜開關都沒動，只是在它們上面
-  // 加一條共用的 .apps-bar（#main 直欄裡、七個 wrap 前面的兄弟元素），哪一頁開著就亮哪一個籤。
+  // 各自的 wrap、路由（#board、#start…）、開法（openBoards…）、抽屜開關都沒動，只是多一組共用的切換器，
+  // 哪一頁開著就亮哪一個籤。切換器有兩份、同一時間只顯示一份（app.css 用寬度切）：桌機是頂列 logo 右邊
+  // 的 #topbar-apps，手機（≤640px）是 #main 裡七個 wrap 前面的 #apps-bar。第一版只有頁面上方那一條，
+  // 抽屜開著時往右讓出抽屜的寬度——trello／隨筆開著抽屜、timetree／課程進度／圖資中心收抽屜，籤列就
+  // 跟著左右滑，剛點的籤從游標底下跑掉（使用者：「點到 timetree 位子會跑」）；頂列不受抽屜影響。
   // 側邊欄那一列開上次用的那一個（localStorage appsLast，預設 trello）。#apps 這個路由只是中鍵／
   // 書籤用的入口：openApps 會先把它 replace 成真正那一頁的 hash，不留在瀏覽紀錄裡——不然從
   // #board 按上一頁退到 #apps，hashchange 又開一次 trello，永遠退不出去。
   const appsBarEl = $('#apps-bar');
+  const topbarAppsEl = $('#topbar-apps');
+  const appsSwitchers = [topbarAppsEl, appsBarEl].filter(Boolean);
   const APPS = ['board', 'start', 'xmind', 'timetree', 'progress', 'foodmap', 'quick'];
   function appOpener(key) {
     return {
@@ -2402,16 +2407,18 @@
     }[key] || null;
   }
   function showAppsBar(key) {
-    if (appsBarEl) {
-      appsBarEl.hidden = false;
-      appsBarEl.querySelectorAll('[data-app]').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-app') === key); });
-    }
+    appsSwitchers.forEach(function (el) {
+      el.hidden = false;
+      el.querySelectorAll('[data-app]').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-app') === key); });
+    });
     setNavActive('apps-open-btn', true);
     LS.set('appsLast', key);
+    fitTopbar();   // 頂列多了一組鈕：放不下就跟模式切換鈕一樣收掉文字只留圖示（lvl2）
   }
   function hideAppsBar() {
-    if (appsBarEl) appsBarEl.hidden = true;
+    appsSwitchers.forEach(function (el) { el.hidden = true; });
     setNavActive('apps-open-btn', false);
+    fitTopbar();
   }
   function openApps(key) {
     key = key || LS.get('appsLast', null) || 'board';
@@ -6174,13 +6181,15 @@
       if (!b) return;
       if (b.getAttribute('data-pa') === 'videos') openVideos(); else openArea('novel');
     });
-    // 應用：側邊欄一列開上次用的那一個；上面那排分頁籤切換七個頁面（見 openApps / showAppsBar）
+    // 應用：側邊欄一列開上次用的那一個；切換器（頂列的 #topbar-apps／手機的 #apps-bar）切換七個頁面（見 openApps / showAppsBar）
     const appsBtn = $('#apps-open-btn'); if (appsBtn) appsBtn.addEventListener('click', function () { openApps(); });
-    if (appsBarEl) appsBarEl.addEventListener('click', function (e) {
-      const b = e.target.closest('[data-app]');
-      if (!b) return;
-      const open = appOpener(b.getAttribute('data-app'));
-      if (open) open();
+    appsSwitchers.forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        const b = e.target.closest('[data-app]');
+        if (!b) return;
+        const open = appOpener(b.getAttribute('data-app'));
+        if (open) open();
+      });
     });
 
     editorEl.addEventListener('input', function () {
@@ -6438,7 +6447,7 @@
       if (t.closest('.trash-row')) return null;   // 垃圾桶裡的筆記開不了（#note/<id> 會 404）
       if ((el = t.closest('.dash-note-wrap[data-id], #tree .note-row[data-id], .search-row[data-id], .qn-card[data-id], .boards-tile[data-id], .xmi-tile[data-id], .vd-card[data-id], .vd-stats [data-id]'))) return '#note/' + el.dataset.id;
       if ((el = t.closest('.pa-tab[data-pa]'))) return el.getAttribute('data-pa') === 'videos' ? '#videos' : '#novel';
-      if ((el = t.closest('.pa-tab[data-app]'))) return '#' + el.getAttribute('data-app');   // 應用的分頁籤：#board、#timetree…
+      if ((el = t.closest('.pa-tab[data-app], .ta-btn[data-app]'))) return '#' + el.getAttribute('data-app');   // 應用的分頁籤：#board、#timetree…
       if ((el = t.closest('.sp-tab[data-page]'))) return '#note/' + el.getAttribute('data-page');
       if ((el = t.closest('.tt-cal[data-cal]'))) return '#note/' + el.getAttribute('data-cal');
       if ((el = t.closest('.pg-course[data-course]'))) return '#note/' + el.getAttribute('data-course');
