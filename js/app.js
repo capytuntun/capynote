@@ -137,6 +137,8 @@
         openArea(areaFromHash().area, { folderId: areaFromHash().folderId, keepHash: true });
       } else if (location.hash === '#videos') {
         openVideos({ keepHash: true });   // 個人區的影片頁：openVideos 自己會先問密碼
+      } else if (location.hash === '#apps') {
+        openApps();   // 側邊欄「應用」那一列的中鍵／書籤：開上次用的那一個應用，hash 換成它的
       } else if (location.hash === '#quick') {
         openQuick();
       } else if (location.hash === '#board') {
@@ -216,7 +218,9 @@
       selectedFolders.clear();
     }
     // 樹顯示哪個區域，側邊欄那一列就亮著——包括正在編輯那個區域裡的一篇筆記的時候
-    ['course', 'knowledge', 'novel', 'quick', 'board', 'start', 'xmind', 'timetree', 'progress', 'foodmap'].forEach(function (a) { setNavActive(a + '-open-btn', a === area); });
+    ['course', 'knowledge', 'novel'].forEach(function (a) { setNavActive(a + '-open-btn', a === area); });
+    // trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 共用側邊欄的「應用」那一列（見 openApps）
+    setNavActive('apps-open-btn', APPS.indexOf(area) >= 0);
     renderTree();
   }
   // 新東西要建在哪個區域：有目標資料夾就跟資料夾（伺服器的 resolveArea 也是這樣要求的），
@@ -1056,19 +1060,14 @@
     // 影片頁（個人區的分頁）：把對話框收掉、還沒送出的存檔送出
     if (window.Videos && videosPageEl && !videosPageEl.hidden) Videos.teardown();
     if (quickWrapEl) quickWrapEl.hidden = true;
-    setNavActive('quick-open-btn', false);
     if (boardsWrapEl) boardsWrapEl.hidden = true;
-    setNavActive('board-open-btn', false);
     if (startWrapEl) { startWrapEl.hidden = true; if (window.StartPage) StartPage.closePop(); }
-    setNavActive('start-open-btn', false);
     if (xmindWrapEl) xmindWrapEl.hidden = true;
-    setNavActive('xmind-open-btn', false);
     if (timetreeWrapEl) { timetreeWrapEl.hidden = true; if (window.TimeTree) TimeTree.teardown(); }
-    setNavActive('timetree-open-btn', false);
     if (progressWrapEl) { progressWrapEl.hidden = true; if (window.Progress) Progress.teardown(); }
-    setNavActive('progress-open-btn', false);
     if (foodmapWrapEl) { foodmapWrapEl.hidden = true; if (window.FoodMap) FoodMap.teardown(); }
-    setNavActive('foodmap-open-btn', false);
+    // 七個應用上面那排分頁籤跟頁面一起收，側邊欄的「應用」也熄——開其中一頁時 showAppsBar 再點亮
+    hideAppsBar();
   }
 
   // 進入一個區域頁面前的共用收尾：跟 openTrash／openBook 同一套「收起其他檢視」。
@@ -1179,7 +1178,7 @@
     closeAreaViews();
     boardsWrapEl.hidden = false;
     boardsWrapEl.scrollTop = 0;
-    setNavActive('board-open-btn', true);
+    showAppsBar('board');
     autoOpenSidebar();
     setHash('board');
     Board.renderIndex(boardsPageEl, boardsOpts());
@@ -1248,7 +1247,7 @@
     if (o && o.pageId) { startCurrent = o.pageId; LS.set('startPage', o.pageId); }
     startWrapEl.hidden = false;
     startWrapEl.scrollTop = 0;
-    setNavActive('start-open-btn', true);
+    showAppsBar('start');
     autoOpenSidebar();   // 使用者要抽屜留著；只有打開某個 trello 看板或文件才收
     setHash('start');
     setTreeArea('start');
@@ -1305,7 +1304,7 @@
     closeAreaViews();
     xmindWrapEl.hidden = false;
     xmindWrapEl.scrollTop = 0;
-    setNavActive('xmind-open-btn', true);
+    showAppsBar('xmind');
     autoOpenSidebar();
     setHash('xmind');
     XMind.renderIndex(xmindPageEl, xmindOpts());
@@ -1485,7 +1484,7 @@
     closeAreaViews();
     if (o && o.calId) { delete TimeTree.state.hidden[o.calId]; LS.set('ttHidden', JSON.stringify(TimeTree.state.hidden)); }
     timetreeWrapEl.hidden = false;
-    setNavActive('timetree-open-btn', true);
+    showAppsBar('timetree');
     setSidebarOpen(false);   // 使用者要的：點開 timetree 就收起左邊
     setHash('timetree');
     setTreeArea('timetree');
@@ -1567,7 +1566,7 @@
     closeAreaViews();
     if (o && o.courseId) { Progress.state.selected = o.courseId; LS.set('pgCourse', o.courseId); }
     progressWrapEl.hidden = false;
-    setNavActive('progress-open-btn', true);
+    showAppsBar('progress');
     setSidebarOpen(false);   // 跟 timetree 一樣：頁面自己有左欄
     setHash('progress');
     setTreeArea('progress');
@@ -1636,7 +1635,7 @@
     closeAreaViews();
     if (o && o.mapId) FoodMap.reveal(o.mapId);
     foodmapWrapEl.hidden = false;
-    setNavActive('foodmap-open-btn', true);
+    showAppsBar('foodmap');
     setSidebarOpen(false);   // 跟 timetree 一樣：頁面自己有左欄
     setHash('foodmap');
     setTreeArea('foodmap');
@@ -2014,7 +2013,7 @@
     closeAreaViews();
     quickWrapEl.hidden = false;
     quickWrapEl.scrollTop = 0;
-    setNavActive('quick-open-btn', true);
+    showAppsBar('quick');
     autoOpenSidebar();
     setHash('quick');
     QuickNotes.render(quickPageEl, quickOpts());
@@ -2386,6 +2385,41 @@
   // 畫在 #videos-page）。兩個共用同一道密碼與同一個 area:'novel'，見 openVideos。
   const videosPageEl = $('#videos-page');
   const paTabsEl = novelWrapEl ? novelWrapEl.querySelector('.pa-tabs') : null;
+  // ---- 應用（#apps-bar）：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 合成側邊欄的一列 ----
+  // 使用者（2026-10-26）：「trello、start.me、xmind、timetree、課程進度、圖資中心、隨筆，整合起來」。
+  // 做法跟 個人（小說／影片）一樣：側邊欄一列「應用」，進去是一頁、最上面一排分頁籤切換。七個頁面
+  // 各自的 wrap、路由（#board、#start…）、開法（openBoards…）、抽屜開關都沒動，只是在它們上面
+  // 加一條共用的 .apps-bar（#main 直欄裡、七個 wrap 前面的兄弟元素），哪一頁開著就亮哪一個籤。
+  // 側邊欄那一列開上次用的那一個（localStorage appsLast，預設 trello）。#apps 這個路由只是中鍵／
+  // 書籤用的入口：openApps 會先把它 replace 成真正那一頁的 hash，不留在瀏覽紀錄裡——不然從
+  // #board 按上一頁退到 #apps，hashchange 又開一次 trello，永遠退不出去。
+  const appsBarEl = $('#apps-bar');
+  const APPS = ['board', 'start', 'xmind', 'timetree', 'progress', 'foodmap', 'quick'];
+  function appOpener(key) {
+    return {
+      board: openBoards, start: function () { openStart(); }, xmind: openXmind, timetree: function () { openTimeTree(); },
+      progress: function () { openProgress(); }, foodmap: function () { openFoodMap(); }, quick: openQuick
+    }[key] || null;
+  }
+  function showAppsBar(key) {
+    if (appsBarEl) {
+      appsBarEl.hidden = false;
+      appsBarEl.querySelectorAll('[data-app]').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-app') === key); });
+    }
+    setNavActive('apps-open-btn', true);
+    LS.set('appsLast', key);
+  }
+  function hideAppsBar() {
+    if (appsBarEl) appsBarEl.hidden = true;
+    setNavActive('apps-open-btn', false);
+  }
+  function openApps(key) {
+    key = key || LS.get('appsLast', null) || 'board';
+    if (APPS.indexOf(key) < 0) key = 'board';
+    if (location.hash === '#apps') replaceHash(key);   // 開頁的 setHash 看到 hash 已經對了就不會再 push
+    const open = appOpener(key);
+    if (open) open();
+  }
   // 只存在瀏覽器這一頁的生命週期裡，重新整理就重置——小說每次重新載入頁面都要
   // 再輸入一次密碼，即使伺服器那邊的解鎖狀態還沒過期（見 CLAUDE.md 的小說區段落）。
   let novelIsUnlocked = false;
@@ -6072,6 +6106,7 @@
         else if (window.AreaBrowser && AreaBrowser.currentFolder() !== fid) AreaBrowser.openFolder(fid);
         return;
       }
+      if (location.hash === '#apps') { openApps(); return; }   // 會把 hash 換成實際開的那一頁
       if (location.hash === '#quick') { if (quickWrapEl && quickWrapEl.hidden) openQuick(); return; }
       if (location.hash === '#board') { if (boardsWrapEl && boardsWrapEl.hidden) openBoards(); return; }
       if (location.hash === '#start') { if (startWrapEl && startWrapEl.hidden) openStart(); return; }
@@ -6139,13 +6174,14 @@
       if (!b) return;
       if (b.getAttribute('data-pa') === 'videos') openVideos(); else openArea('novel');
     });
-    const quickBtn = $('#quick-open-btn'); if (quickBtn) quickBtn.addEventListener('click', openQuick);
-    const boardBtn = $('#board-open-btn'); if (boardBtn) boardBtn.addEventListener('click', openBoards);
-    const startBtn = $('#start-open-btn'); if (startBtn) startBtn.addEventListener('click', function () { openStart(); });
-    const xmindBtn = $('#xmind-open-btn'); if (xmindBtn) xmindBtn.addEventListener('click', openXmind);
-    const timetreeBtn = $('#timetree-open-btn'); if (timetreeBtn) timetreeBtn.addEventListener('click', function () { openTimeTree(); });
-    const progressBtn = $('#progress-open-btn'); if (progressBtn) progressBtn.addEventListener('click', function () { openProgress(); });
-    const foodmapBtn = $('#foodmap-open-btn'); if (foodmapBtn) foodmapBtn.addEventListener('click', function () { openFoodMap(); });
+    // 應用：側邊欄一列開上次用的那一個；上面那排分頁籤切換七個頁面（見 openApps / showAppsBar）
+    const appsBtn = $('#apps-open-btn'); if (appsBtn) appsBtn.addEventListener('click', function () { openApps(); });
+    if (appsBarEl) appsBarEl.addEventListener('click', function (e) {
+      const b = e.target.closest('[data-app]');
+      if (!b) return;
+      const open = appOpener(b.getAttribute('data-app'));
+      if (open) open();
+    });
 
     editorEl.addEventListener('input', function () {
       renderPreview();
@@ -6389,7 +6425,7 @@
     // 使用者（2026-10-11）：「所有連結按下滾輪都要可以開新分頁」——所以不只筆記列：側邊欄的區域列、
     // 麵包屑、標籤、trello／xmind 磚、start.me 分頁、timetree 的行事曆列、課程進度的課程與章節筆記、
     // 電子書目錄、檔案管理「使用於」的筆記、嵌入圖的「全螢幕／編輯」、標題列的資料夾前綴，都算。
-    const NAV_HASH = { 'course-open-btn': '#course', 'quick-open-btn': '#quick', 'knowledge-open-btn': '#knowledge', 'board-open-btn': '#board', 'start-open-btn': '#start', 'xmind-open-btn': '#xmind', 'timetree-open-btn': '#timetree', 'progress-open-btn': '#progress', 'foodmap-open-btn': '#foodmap', 'novel-open-btn': '#novel', 'images-open-btn': '#files', 'trash-open-btn': '#trash' };
+    const NAV_HASH = { 'course-open-btn': '#course', 'knowledge-open-btn': '#knowledge', 'apps-open-btn': '#apps', 'novel-open-btn': '#novel', 'images-open-btn': '#files', 'trash-open-btn': '#trash' };
     function middleTarget(t) {
       if (!t || !t.closest) return null;
       const fh = function (f) { return f ? (f.area ? '#' + f.area + '/' + f.id : '#folder/' + f.id) : null; };
@@ -6402,6 +6438,7 @@
       if (t.closest('.trash-row')) return null;   // 垃圾桶裡的筆記開不了（#note/<id> 會 404）
       if ((el = t.closest('.dash-note-wrap[data-id], #tree .note-row[data-id], .search-row[data-id], .qn-card[data-id], .boards-tile[data-id], .xmi-tile[data-id], .vd-card[data-id], .vd-stats [data-id]'))) return '#note/' + el.dataset.id;
       if ((el = t.closest('.pa-tab[data-pa]'))) return el.getAttribute('data-pa') === 'videos' ? '#videos' : '#novel';
+      if ((el = t.closest('.pa-tab[data-app]'))) return '#' + el.getAttribute('data-app');   // 應用的分頁籤：#board、#timetree…
       if ((el = t.closest('.sp-tab[data-page]'))) return '#note/' + el.getAttribute('data-page');
       if ((el = t.closest('.tt-cal[data-cal]'))) return '#note/' + el.getAttribute('data-cal');
       if ((el = t.closest('.pg-course[data-course]'))) return '#note/' + el.getAttribute('data-course');

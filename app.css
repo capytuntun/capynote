@@ -6066,8 +6066,8 @@ pre.gd-code .gd-t-add { color: #22863a; background: #f0fff4; } pre.gd-code .gd-t
 #preview > .markdown-body { animation: sn-fade .25s var(--ease-out); }
 
 /* 側邊欄每個區域自己的顏色：圖示一眼就分得出是哪一區（選中時色條也跟著） */
-#course-open-btn { --ac: #d9962a; } #quick-open-btn { --ac: #e0a458; } #knowledge-open-btn { --ac: #17934f; } #board-open-btn { --ac: #0079bf; }
-#start-open-btn { --ac: #5b7fa6; } #xmind-open-btn { --ac: #c5221f; } #timetree-open-btn { --ac: #1a9a81; } #progress-open-btn { --ac: #b8741a; } #novel-open-btn { --ac: #8e44ad; }
+#course-open-btn { --ac: #d9962a; } #knowledge-open-btn { --ac: #17934f; } #novel-open-btn { --ac: #8e44ad; }
+#apps-open-btn { --ac: #3d6be6; }
 .sidebar-areas .sidebar-nav-item .ic-svg { color: var(--ac, var(--text-faint)); opacity: .85; }
 .sidebar-areas .sidebar-nav-item:hover .ic-svg, .sidebar-areas .sidebar-nav-item.is-active .ic-svg { color: var(--ac, var(--accent)); opacity: 1; }
 .sidebar-areas .sidebar-nav-item.is-active { background: color-mix(in srgb, var(--ac, var(--accent)) 12%, transparent); color: var(--text); }
@@ -6596,7 +6596,6 @@ textarea.vd-t-in:focus { white-space: pre-wrap; overflow: auto; }
 }
 
 /* ===== 美食地圖（js/foodmap.js）：左欄地圖清單＋標籤、中間店家清單、右邊 Leaflet（OpenStreetMap） ===== */
-#foodmap-open-btn { --ac: #e0542c; }
 .dash-row-ic.kind-foodmap, .dash-row-kind.kind-foodmap { background: rgba(224, 84, 44, .14); color: #c2451f; }
 :root[data-theme="dark"] .dash-row-ic.kind-foodmap, :root[data-theme="dark"] .dash-row-kind.kind-foodmap { color: #f08a68; }
 #foodmap-wrap { overflow: hidden; display: flex; flex-direction: column; }
@@ -7086,17 +7085,38 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
    抽屜是固定高度的直欄，裡面只有筆記樹會伸縮：新增列、十個區域列、搜尋列、三個工具列、
    匯入列合起來約 590px；1366×768 的筆電，瀏覽器內容區約 690px，扣掉頂列剩 640——
    樹只剩 40px，匯入列貼在畫面邊緣（截圖裡樹頭底下那一小截捲軸就是整棵樹）。
-   視窗矮於 860px 時區域列改排兩欄：五列 30px 代替十列 36px，省下約 180px 給樹；底下的
-   工具列也縮到 30px。再不夠（例如瀏覽器放大到 150%）抽屜本身可以捲、樹至少保 120px，
-   沒有東西會掉到畫面外。桌機（內容區 900px 以上）版面不變。
-   列高跟 .tree-row 一樣寫死，不靠 padding 撐：中文的行框比英文高，trello／start.me／
-   xmind／timetree 四列本來就比中文列矮 3px，排成兩欄後左右對不齊會更明顯。 */
+   同一天把七個應用合成一列（見檔尾的「應用」段）之後區域列只剩四列（課程筆記／知識區／應用／
+   個人），固定部分約 400px，1366×768 的筆電單欄就放得下；視窗矮於 680px（有書籤列的筆電、
+   放大過的瀏覽器）才把區域列改排兩欄、每列 30px，工具列也縮到 30px。再不夠（例如瀏覽器放大
+   到 150%）抽屜本身可以捲、樹至少保 120px，沒有東西會掉到畫面外。桌機版面不變。
+   列高跟 .tree-row 一樣寫死，不靠 padding 撐：中文的行框比英文高，英文的那幾列本來就比
+   中文列矮 3px，排成兩欄後左右對不齊會更明顯。 */
 #sidebar { overflow-y: auto; overflow-x: hidden; }
 .tree, .search-results { min-height: 120px; }
 .sidebar-nav-item { height: 36px; padding-top: 0; padding-bottom: 0; }
-@media (max-height: 860px) {
+@media (max-height: 680px) {
   .sidebar-areas { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
   .sidebar-areas .sidebar-nav-item { height: 30px; padding: 0 10px 0 14px; gap: 8px; min-width: 0; overflow: hidden; }
   .sidebar-nav:not(.sidebar-areas) .sidebar-nav-item { height: 30px; padding: 0 16px; }
   .sidebar-actions { padding-top: 8px; }
 }
+
+/* ---------- 應用（#apps-bar）：trello／start.me／xmind／timetree／課程進度／圖資中心／隨筆 合成側邊欄一列（2026-10-26）----------
+   使用者：「trello、start.me、xmind、timetree、課程進度、圖資中心、隨筆，整合起來」。做法照 個人（小說／影片）：
+   側邊欄一列「應用」，七個頁面上面共用一排分頁籤（.pa-tabs 同一套樣式），籤的圖示沿用各自在側邊欄時的顏色。
+   這條籤列是 #main 直欄裡、七個 wrap 前面的兄弟元素，所以每一頁（含 timetree／圖資中心這種整頁 flex 的）
+   都是在它底下吃剩下的高度；抽屜開著時跟頁面一樣往右讓出抽屜的寬度。[hidden] 要自己寫，因為 display: flex
+   會蓋過瀏覽器預設的 [hidden] { display: none }。 */
+.apps-bar { display: flex; align-items: center; flex: 0 0 auto; gap: 12px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--bg); overflow-x: auto; scrollbar-width: thin; transition: padding-left .2s cubic-bezier(.2, .7, .2, 1); }
+.apps-bar[hidden] { display: none; }
+#app.sidebar-open .apps-bar { padding-left: calc(var(--sidebar-w) + 24px); }
+.apps-bar .pa-tabs { flex: 0 0 auto; }
+.apps-bar .pa-tab { white-space: nowrap; }
+.apps-bar .pa-tab .ic-svg { color: var(--ac, var(--text-faint)); opacity: .85; }
+.apps-bar .pa-tab:hover .ic-svg, .apps-bar .pa-tab.is-active .ic-svg { opacity: 1; }
+.apps-bar .pa-tab.is-active { background: color-mix(in srgb, var(--ac, var(--accent)) 12%, transparent); color: var(--text); }
+.apps-bar [data-app="board"] { --ac: #0079bf; } .apps-bar [data-app="start"] { --ac: #5b7fa6; } .apps-bar [data-app="xmind"] { --ac: #c5221f; }
+.apps-bar [data-app="timetree"] { --ac: #1a9a81; } .apps-bar [data-app="progress"] { --ac: #b8741a; } .apps-bar [data-app="foodmap"] { --ac: #e0542c; }
+.apps-bar [data-app="quick"] { --ac: #e0a458; }
+@media (max-width: 900px) { #app.sidebar-open .apps-bar { padding-left: 24px; } }
+@media (max-width: 640px) { .apps-bar { padding: 8px 12px; } }
