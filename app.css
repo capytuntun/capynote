@@ -7081,3 +7081,22 @@ a.fm-src:hover { color: var(--accent); text-decoration: underline; }
   .fm-pick-banner { white-space: nowrap; gap: 6px; padding: 6px 10px; }
   .fm-pick-banner .tt-btn { padding: 0 8px; }
 }
+
+/* ---------- 矮螢幕的側邊欄（2026-10-26，user: 「用小筆電開這個會出事」）----------
+   抽屜是固定高度的直欄，裡面只有筆記樹會伸縮：新增列、十個區域列、搜尋列、三個工具列、
+   匯入列合起來約 590px；1366×768 的筆電，瀏覽器內容區約 690px，扣掉頂列剩 640——
+   樹只剩 40px，匯入列貼在畫面邊緣（截圖裡樹頭底下那一小截捲軸就是整棵樹）。
+   視窗矮於 860px 時區域列改排兩欄：五列 30px 代替十列 36px，省下約 180px 給樹；底下的
+   工具列也縮到 30px。再不夠（例如瀏覽器放大到 150%）抽屜本身可以捲、樹至少保 120px，
+   沒有東西會掉到畫面外。桌機（內容區 900px 以上）版面不變。
+   列高跟 .tree-row 一樣寫死，不靠 padding 撐：中文的行框比英文高，trello／start.me／
+   xmind／timetree 四列本來就比中文列矮 3px，排成兩欄後左右對不齊會更明顯。 */
+#sidebar { overflow-y: auto; overflow-x: hidden; }
+.tree, .search-results { min-height: 120px; }
+.sidebar-nav-item { height: 36px; padding-top: 0; padding-bottom: 0; }
+@media (max-height: 860px) {
+  .sidebar-areas { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
+  .sidebar-areas .sidebar-nav-item { height: 30px; padding: 0 10px 0 14px; gap: 8px; min-width: 0; overflow: hidden; }
+  .sidebar-nav:not(.sidebar-areas) .sidebar-nav-item { height: 30px; padding: 0 16px; }
+  .sidebar-actions { padding-top: 8px; }
+}
