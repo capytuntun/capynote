@@ -354,6 +354,7 @@
   // whole document has been parsed.
   const TOC_PLACEHOLDER = '<!--md-toc-placeholder-->';
   const TOC_MAX_LEVEL = 3;
+  const TOC_OPEN_LEVEL = 1;   // headings at this level or above start expanded: the TOC opens to the ## level
   let headingList = [];   // [{ level, text, id }] in document order, reset per render
 
   const tocExtension = {
@@ -370,20 +371,17 @@
     renderer: function () { return TOC_PLACEHOLDER + '\n'; }
   };
 
-  // Inline [toc]: only the note's top heading level is listed (normally `#`).
-  // Everything deeper is tucked into a collapsed sub-list under its parent and
-  // appears only when the reader opens it. The toggle is a plain <button> —
-  // app.js delegates the click, keys the open state by the *parent's* id (so the
-  // side panel and this list stay in step) and restores it after each re-render.
+  // Inline [toc]: opens to the `##` level by default — every `#` is listed with its `##`
+  // children showing, and anything deeper (`###`) is tucked into a collapsed sub-list under
+  // its parent until the reader opens it. Any item with children gets a toggle (a plain
+  // <button>); app.js delegates the click, keys the open state by the *parent's* id (so the
+  // side panel and this list stay in step) and re-applies it after each re-render, using the
+  // <li>'s toc-lN class to tell a default-open `#` group from a default-closed deeper one.
   function buildInlineTOC() {
     const items = headingList.filter(function (h) { return h.level <= TOC_MAX_LEVEL; });
     if (!items.length) {
       return '<nav class="md-toc md-toc-empty">這份筆記還沒有標題，加上 # 標題後會自動列在這裡</nav>';
     }
-    // A note that starts at ## (no h1 at all) should still show something, so
-    // the always-visible level is whatever the shallowest heading happens to be.
-    let top = 6;
-    items.forEach(function (h) { if (h.level < top) top = h.level; });
 
     // Build a proper tree first: rendering straight from the flat list makes the
     // "1.1.1" numbering lie as soon as a level is skipped.
@@ -400,15 +398,11 @@
     function renderList(nodes, cls) {
       let s = '<ul' + (cls ? ' class="' + cls + '"' : '') + '>';
       nodes.forEach(function (n) {
-        s += '<li class="toc-l' + n.h.level + '"><a href="#' + n.h.id + '">' + n.h.text + '</a>';
+        const open = n.kids.length > 0 && n.h.level <= TOC_OPEN_LEVEL;
+        s += '<li class="toc-l' + n.h.level + (open ? ' open' : '') + '"><a href="#' + n.h.id + '">' + n.h.text + '</a>';
         if (n.kids.length) {
-          // Only the top level is shown; its whole subtree hides behind a toggle.
-          if (n.h.level === top) {
-            s += '<button type="button" class="md-toc-toggle" data-toc="' + n.h.id + '" ' +
-              'aria-label="展開子標題"></button>' + renderList(n.kids, 'md-toc-kids');
-          } else {
-            s += renderList(n.kids, '');
-          }
+          s += '<button type="button" class="md-toc-toggle" data-toc="' + n.h.id + '" ' +
+            'aria-label="展開子標題"></button>' + renderList(n.kids, 'md-toc-kids');
         }
         s += '</li>';
       });

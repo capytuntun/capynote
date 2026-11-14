@@ -2885,7 +2885,7 @@
       LS.set('lastNote', id);
       anchorBackToFolder(fromArea, note);
       setHash('note/' + id);
-      tocOpen.clear();         // 目錄的展開狀態是每篇筆記各自的
+      tocOpen.clear(); tocClosed.clear();   // 目錄的展開狀態是每篇筆記各自的
       emptyEl.hidden = true;
       closeBookView();
       closeTrashView();
@@ -3574,8 +3574,8 @@
     title.appendChild(label);
     title.appendChild(collapse);
     tocEl.appendChild(title);
-    // 預設只列到最上層（通常是 #）：底下的 ## / ### 收起來，點右邊的箭頭才展開。
-    // 展開狀態記在 tocOpen（以上層標題的 id 為鍵，與內文 [toc] 共用），
+    // 預設展開到 ##：# 底下的 ## 一開始就看得到，### 收在它的 ## 底下，點右邊的箭頭才展開。
+    // 展開狀態記在 tocOpen／tocClosed（以上層標題的 id 為鍵，與內文 [toc] 共用），
     // 重新渲染時保留，換筆記時清空。
     function makeLink(h) {
       const a = document.createElement('a');
@@ -3590,60 +3590,70 @@
       });
       return a;
     }
-    // 只有從 # 開始的筆記才會只剩 #；若整篇最淺的標題是 ##，就以 ## 為上層。
-    let top = 6;
+    // 先疊成樹（# → ## → ###）；沒有 # 的筆記就從 ## 起算，前面沒有上層可掛的直接列在那一層
+    const roots = [];
+    const stack = [];
     heads.forEach(function (h) {
-      const lv = parseInt(h.tagName.charAt(1), 10);
-      if (lv < top) top = lv;
+      const node = { h: h, lv: parseInt(h.tagName.charAt(1), 10), kids: [] };
+      while (stack.length && stack[stack.length - 1].lv >= node.lv) stack.pop();
+      if (stack.length) stack[stack.length - 1].kids.push(node);
+      else roots.push(node);
+      stack.push(node);
     });
-    let group = null;   // 目前的上層群組：{ wrap, kids, twisty }
-    heads.forEach(function (h) {
-      const lv = parseInt(h.tagName.charAt(1), 10);
-      const a = makeLink(h);
-      if (lv > top) {
-        if (group) group.kids.appendChild(a);
-        else tocEl.appendChild(a);        // 前面沒有上層標題可掛，直接列出
-        return;
-      }
-      // 上層標題：一列 = 連結 + 展開箭頭；子項放在下面的 .toc-children
-      const key = h.id || h.textContent;   // 與內文 [toc] 用同一組鍵，兩邊同步展開
-      const wrap = document.createElement('div');
-      wrap.className = 'toc-group' + (tocOpen.has(key) ? ' open' : '');
-      const rowEl = document.createElement('div');
-      rowEl.className = 'toc-row';
-      const tw = document.createElement('button');
-      tw.type = 'button';
-      tw.className = 'toc-twisty';
-      tw.title = '展開／收合子標題';
-      tw.innerHTML = Icons.svg('chevron-right');
-      tw.addEventListener('click', function (e) {
-        e.preventDefault(); e.stopPropagation();
-        const open = wrap.classList.toggle('open');
-        if (open) tocOpen.add(key); else tocOpen.delete(key);
-        updateTocActive();
+    function render(nodes, into) {
+      nodes.forEach(function (n) {
+        const a = makeLink(n.h);
+        if (!n.kids.length) { into.appendChild(a); return; }   // 沒有子標題的不需要箭頭
+        // 有子標題的：一列 = 連結 + 展開箭頭；子項放在下面的 .toc-children
+        const key = n.h.id || n.h.textContent;   // 與內文 [toc] 用同一組鍵，兩邊同步展開
+        const wrap = document.createElement('div');
+        wrap.className = 'toc-group' + (tocGroupOpen(key, n.lv) ? ' open' : '');
+        const rowEl = document.createElement('div');
+        rowEl.className = 'toc-row';
+        const tw = document.createElement('button');
+        tw.type = 'button';
+        tw.className = 'toc-twisty';
+        tw.title = '展開／收合子標題';
+        tw.innerHTML = Icons.svg('chevron-right');
+        tw.addEventListener('click', function (e) {
+          e.preventDefault(); e.stopPropagation();
+          setTocGroupOpen(key, n.lv, wrap.classList.toggle('open'));
+          updateTocActive();
+        });
+        rowEl.appendChild(a);
+        rowEl.appendChild(tw);
+        const kids = document.createElement('div');
+        kids.className = 'toc-children';
+        wrap.appendChild(rowEl);
+        wrap.appendChild(kids);
+        into.appendChild(wrap);
+        render(n.kids, kids);
       });
-      rowEl.appendChild(a);
-      rowEl.appendChild(tw);
-      const kids = document.createElement('div');
-      kids.className = 'toc-children';
-      wrap.appendChild(rowEl);
-      wrap.appendChild(kids);
-      tocEl.appendChild(wrap);
-      group = { wrap: wrap, kids: kids, twisty: tw };
-    });
-    // 底下沒有子標題的，不需要箭頭
-    tocEl.querySelectorAll('.toc-group').forEach(function (g) {
-      if (!g.querySelector('.toc-children a')) { g.classList.add('leaf'); const t = g.querySelector('.toc-twisty'); if (t) t.remove(); }
-    });
+    }
+    render(roots, tocEl);
     updateTocActive();
   }
-  // 哪些 ## 段落的子標題是展開的（側邊目錄與內文 [toc] 共用，以標題 id 為鍵）。
-  // 換筆記時清空——展開狀態屬於某一篇筆記，不該跟著跑到下一篇。
+  // 目錄哪些群組是展開的（側邊目錄與內文 [toc] 共用，以上層標題的 id 為鍵）。
+  // 預設展開到 ##：# 的群組預設開著，使用者收起來的記在 tocClosed；## 以下的群組預設收著，
+  // 使用者打開的記在 tocOpen。換筆記時都清空——展開狀態屬於某一篇筆記，不該跟著跑到下一篇。
+  const TOC_OPEN_LEVEL = 1;
   const tocOpen = new Set();
+  const tocClosed = new Set();
+  function tocGroupOpen(key, lv) { return lv <= TOC_OPEN_LEVEL ? !tocClosed.has(key) : tocOpen.has(key); }
+  function setTocGroupOpen(key, lv, open) {
+    if (lv <= TOC_OPEN_LEVEL) { if (open) tocClosed.delete(key); else tocClosed.add(key); }
+    else { if (open) tocOpen.add(key); else tocOpen.delete(key); }
+  }
+  // 內文 [toc] 的 <li> 帶 toc-lN 類別（markdown.js），用它分辨是預設開的 # 還是預設收的 ##
+  function inlineTocLevel(li) {
+    const m = li && /\btoc-l(\d)\b/.exec(li.className);
+    return m ? parseInt(m[1], 10) : 9;
+  }
   // 內文 [toc] 每次重新渲染都會重建，這裡把展開狀態貼回去
   function restoreInlineTocState() {
     previewEl.querySelectorAll('.md-toc .md-toc-toggle').forEach(function (b) {
-      if (tocOpen.has(b.getAttribute('data-toc'))) b.closest('li').classList.add('open');
+      const li = b.closest('li');
+      if (li) li.classList.toggle('open', tocGroupOpen(b.getAttribute('data-toc'), inlineTocLevel(li)));
     });
   }
   function tocTargetOf(a) {
@@ -3663,12 +3673,15 @@
       const t = tocTargetOf(a);
       if (t && t.getBoundingClientRect().top - containerTop <= 40) active = a;
     });
-    // 目前段落是收合中的 ###：改反白它所屬的 ##
+    // 目前段落收在收起的群組裡（例如 ### 在收著的 ## 底下）：改反白最近一個看得見的上層標題
     let shown = active;
     if (active && active.offsetParent === null) {
-      const g = active.closest('.toc-group');
-      const parent = g && g.querySelector('.toc-row > a');
-      if (parent) shown = parent;
+      let g = active.closest('.toc-group');
+      while (g) {
+        const parent = g.querySelector(':scope > .toc-row > a');
+        if (parent && parent !== active && parent.offsetParent !== null) { shown = parent; break; }
+        g = g.parentElement ? g.parentElement.closest('.toc-group') : null;
+      }
     }
     links.forEach(function (a) { a.classList.toggle('active', a === shown); });
   }
@@ -6402,14 +6415,12 @@
       if (anno) { e.preventDefault(); openAnnotator(anno.getAttribute('data-annotate')); return; }
       const frameBtn = e.target.closest('.img-frame-btn');
       if (frameBtn) { e.preventDefault(); toggleImageFrame(frameBtn); return; }
-      // 內文 [toc] 的展開鈕：預設只列到 ##，點了才顯示底下的 ###
+      // 內文 [toc] 的展開鈕：預設展開到 ##，### 收在 ## 底下點了才顯示（狀態與側邊目錄共用）
       const tocToggle = e.target.closest('.md-toc-toggle');
       if (tocToggle) {
         e.preventDefault();
-        const key = tocToggle.getAttribute('data-toc');
         const li = tocToggle.closest('li');
-        const open = li.classList.toggle('open');
-        if (open) tocOpen.add(key); else tocOpen.delete(key);
+        setTocGroupOpen(tocToggle.getAttribute('data-toc'), inlineTocLevel(li), li.classList.toggle('open'));
         return;
       }
       // Inline [toc] entries: scroll the preview pane instead of changing the URL hash.
